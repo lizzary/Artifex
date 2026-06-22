@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0). Created if it does not exist.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        env:
+          CI: false  # react-scripts treats warnings as errors when CI=true
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build/
+          retention-days: 1
+
+  build-backend:
+    name: Build ${{ matrix.target }}
+    needs: build-frontend
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            archive: tar.gz
+          - target: windows-amd64
+            os: windows-latest
+            goos: windows
+            goarch: amd64
+            archive: zip
+            ext: .exe
+          - target: darwin-amd64
+            os: macos-13       # Intel runner
+            goos: darwin
+            goarch: amd64
+            archive: tar.gz
+          - target: darwin-arm64
+            os: macos-14       # Apple Silicon runner
+            goos: darwin
+            goarch: arm64
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.sum
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend-build/
+
+      - name: Build binary
+        working-directory: backend-go
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '1'  # onnxruntime_go requires CGO
+        run: |
+          mkdir -p ../dist
+          go build -trimpath -ldflags="-s -w" -o "../dist/artifex${{ matrix.ext }}" .
+
+      - name: Stage release contents
+        run: |
+          STAGE="artifex-${{ matrix.target }}"
+          mkdir -p "$STAGE"
+          mv "dist/artifex${{ matrix.ext }}" "$STAGE/"
+          cp -r frontend-build "$STAGE/frontend"
+          cp README.md LICENSE "$STAGE/"
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          STAGE="artifex-${{ matrix.target }}"
+          7z a "${STAGE}.zip" "$STAGE"
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          STAGE="artifex-${{ matrix.target }}"
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifex-${{ matrix.target }}
+          path: artifex-${{ matrix.target }}.${{ matrix.archive }}
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build-backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: artifex-*
+          merge-multiple: true
+
+      - name: Compute SHA-256 checksums
+        working-directory: artifacts
+        run: sha256sum artifex-* > SHA256SUMS.txt
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
+          generate_release_notes: true
+          files: |
+            artifacts/artifex-*
+            artifacts/SHA256SUMS.txt
