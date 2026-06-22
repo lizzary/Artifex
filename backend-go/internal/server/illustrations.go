@@ -164,7 +164,7 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 
 	db := database.GetDB()
 
-	// Insert with placeholder filename
+	// Insert with placeholder filename (we need the auto-assigned id to build a unique disk name)
 	result, err := db.Exec(`
 		INSERT INTO illustrations
 		(group_id, filename, original_filename, file_size, width, height, mime_type, tags, extended_data)
@@ -174,48 +174,46 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 		return nil, fmt.Errorf("failed to save %s: %v", safeFilename, err)
 	}
 
-	illID, _ := result.LastInsertId()
+	illID, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get illustration id: %v", err)
+	}
 	diskFilename := fmt.Sprintf("%d_%s", illID, safeFilename)
+
+	// Persist the real filename BEFORE writing files. Otherwise a concurrent read sees
+	// filename="" and ServeIllustrationThumbnail resolves the path to a directory; then
+	// http.ServeFile issues a 301 to "<url>/", which the router can't match → 404.
+	if _, err := db.Exec("UPDATE illustrations SET filename = ? WHERE id = ?", diskFilename, illID); err != nil {
+		db.Exec("DELETE FROM illustrations WHERE id = ?", illID)
+		return nil, fmt.Errorf("failed to set filename for %s: %v", safeFilename, err)
+	}
 
 	// Write originals and thumbnails
 	originalsDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), "originals")
 
 	// Generate thumbnails
-	for quality, cfg := range thumbnail.QualityConfigs {
+	for _, cfg := range thumbnail.QualityConfigs {
 		thumbImg := thumbnail.CreateThumbnail(img, cfg.MaxSize)
 		thumbDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), cfg.Dir)
 		thumbPath := filepath.Join(thumbDir, diskFilename)
 		if err := thumbnail.SaveJPEG(thumbImg, thumbPath, cfg.JPEGQuality); err != nil {
 			return nil, fmt.Errorf("failed to create thumbnail for %s", safeFilename)
 		}
-		_ = quality
 	}
 
 	// Save original
 	originalPath := filepath.Join(originalsDir, diskFilename)
-	if err := os.MkdirAll(originalsDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory: %v", err)
-	}
 	if err := os.WriteFile(originalPath, contents, 0644); err != nil {
 		return nil, fmt.Errorf("failed to save original %s", safeFilename)
 	}
 
 	// Extract ComfyUI metadata
-	var extendedDataJSON *string
 	meta, err := metadata.Extract(originalPath, img)
 	if err == nil && len(meta) > 0 {
 		metaBytes, _ := json.Marshal(meta)
-		ed := string(metaBytes)
-		extendedDataJSON = &ed
-	}
-
-	// Update filename and extended_data
-	if extendedDataJSON != nil {
-		db.Exec("UPDATE illustrations SET filename = ?, extended_data = ? WHERE id = ?",
-			diskFilename, *extendedDataJSON, illID)
-	} else {
-		db.Exec("UPDATE illustrations SET filename = ? WHERE id = ?",
-			diskFilename, illID)
+		if _, err := db.Exec("UPDATE illustrations SET extended_data = ? WHERE id = ?", string(metaBytes), illID); err != nil {
+			return nil, fmt.Errorf("failed to save metadata for %s: %v", safeFilename, err)
+		}
 	}
 
 	var item models.IllustrationResponse
@@ -377,8 +375,14 @@ func (s *Server) ServeIllustrationFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filepath := filepath.Join(s.UploadsDir(), strconv.Itoa(gID), "originals", filename)
-	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+	if filename == "" {
+		writeError(w, 404, "Illustration file not yet available")
+		return
+	}
+
+	origPath := filepath.Join(s.UploadsDir(), strconv.Itoa(gID), "originals", filename)
+	info, err := os.Stat(origPath)
+	if err != nil || info.IsDir() {
 		writeError(w, 404, "File not found on disk")
 		return
 	}
@@ -387,7 +391,7 @@ func (s *Server) ServeIllustrationFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, origFilename))
 	}
 	w.Header().Set("Content-Type", mimeType)
-	http.ServeFile(w, r, filepath)
+	http.ServeFile(w, r, origPath)
 }
 
 // ── Serve Thumbnail ──────────────────────────────────────────────────────
@@ -420,16 +424,24 @@ func (s *Server) ServeIllustrationThumbnail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if filename == "" {
+		writeError(w, 404, "Illustration file not yet available")
+		return
+	}
+
 	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
 
 	if quality == "original" {
-		filepath := filepath.Join(groupDir, "originals", filename)
-		if _, err := os.Stat(filepath); os.IsNotExist(err) {
+		origPath := filepath.Join(groupDir, "originals", filename)
+		// info.IsDir() guard: avoids http.ServeFile's directory-canonicalization
+		// 301 to "<url>/", which the router can't match.
+		info, err := os.Stat(origPath)
+		if err != nil || info.IsDir() {
 			writeError(w, 404, "Original file not found on disk")
 			return
 		}
 		w.Header().Set("Content-Type", mimeType)
-		http.ServeFile(w, r, filepath)
+		http.ServeFile(w, r, origPath)
 		return
 	}
 
@@ -454,6 +466,11 @@ func (s *Server) ServeIllustrationThumbnail(w http.ResponseWriter, r *http.Reque
 			writeError(w, 500, "Failed to generate thumbnail")
 			return
 		}
+	}
+
+	if info, err := os.Stat(filePath); err != nil || info.IsDir() {
+		writeError(w, 404, "Thumbnail not found")
+		return
 	}
 
 	w.Header().Set("Content-Type", "image/jpeg")
