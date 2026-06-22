@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Pencil } from 'lucide-react';
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
+import { Plus, Trash2, Pencil, GripVertical } from 'lucide-react';
 import TagPromptSuggest from './TagPromptSuggest';
 import { useLocale } from '../contexts/LocaleContext';
 
@@ -120,14 +120,12 @@ export default function GroupConfigModal({ type, config, onClose }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay/60 backdrop-blur-sm"
-      onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         className="bg-surface-secondary border border-edge-primary rounded-2xl w-full max-w-xl mx-4 shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-edge-primary flex items-center justify-between">
@@ -224,72 +222,36 @@ export default function GroupConfigModal({ type, config, onClose }) {
             </div>
           )}
 
-          {editingPairs.map((pair, pi) => {
-            const colorIdx = pi % palette.length;
-            const color = palette[colorIdx];
-            return (
-              <div
-                key={pair.id}
-                className="rounded-xl p-4 border"
-                style={{ backgroundColor: color.bg, borderColor: color.border }}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-3.5 h-3.5 rounded-full shrink-0"
-                      style={{ backgroundColor: color.border }}
-                    />
-                    <span className="text-sm font-medium text-content-secondary">
-                      {t('groupConfig.groupHeading', { n: pi + 1 })}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleRemovePair(pair.id)}
-                    className="p-1 rounded-lg hover:bg-edge-subtle/10 text-content-muted hover:text-danger transition-colors"
-                    title={t('groupConfig.removeGroup')}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {pair.keywords.map((kw, ki) => (
-                    <div key={ki} className="flex items-center gap-1.5">
-                      <TagPromptSuggest
-                        type={type}
-                        value={kw}
-                        onChange={(val) => handleKeywordChange(pair.id, ki, val)}
-                        placeholder={type === 'tag' ? t('groupConfig.keywordPlaceholder.tag') : t('groupConfig.keywordPlaceholder.prompt')}
-                        className="flex-1"
-                        inputClassName="w-full bg-surface-tertiary border border-edge-primary rounded-lg px-3 py-1.5 text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
-                      />
-                      {pair.keywords.length > 1 && (
-                        <button
-                          onClick={() => handleRemoveKeyword(pair.id, ki)}
-                          className="p-1.5 rounded-lg hover:bg-edge-subtle/10 text-content-muted hover:text-content-tertiary transition-colors shrink-0"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => handleAddKeyword(pair.id)}
-                    className="text-xs text-content-muted hover:text-content-tertiary transition-colors flex items-center gap-1 mt-1"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    {t('groupConfig.addKeyword')}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {editingPairs.length > 0 && (
+            <Reorder.Group
+              axis="y"
+              values={editingPairs}
+              onReorder={setEditingPairs}
+              className="space-y-4"
+            >
+              {editingPairs.map((pair, pi) => {
+                const fallback = palette[pi % palette.length];
+                const color = {
+                  bg: pair.color || fallback.bg,
+                  border: pair.borderColor || fallback.border,
+                };
+                return (
+                  <PairItem
+                    key={pair.id}
+                    pair={pair}
+                    index={pi}
+                    color={color}
+                    type={type}
+                    t={t}
+                    onKeywordChange={handleKeywordChange}
+                    onAddKeyword={handleAddKeyword}
+                    onRemoveKeyword={handleRemoveKeyword}
+                    onRemovePair={handleRemovePair}
+                  />
+                );
+              })}
+            </Reorder.Group>
+          )}
 
           <button
             onClick={handleAddPair}
@@ -332,5 +294,83 @@ export default function GroupConfigModal({ type, config, onClose }) {
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+function PairItem({ pair, index, color, type, t, onKeywordChange, onAddKeyword, onRemoveKeyword, onRemovePair }) {
+  const dragControls = useDragControls();
+
+  return (
+    <Reorder.Item
+      value={pair}
+      dragListener={false}
+      dragControls={dragControls}
+      className="rounded-xl p-4 border"
+      style={{ backgroundColor: color.bg, borderColor: color.border }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onPointerDown={(e) => { e.preventDefault(); dragControls.start(e); }}
+            className="p-1 -m-1 rounded text-content-muted hover:text-content-secondary cursor-grab active:cursor-grabbing touch-none"
+            title={t('groupConfig.dragReorder')}
+            aria-label={t('groupConfig.dragReorder')}
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
+          <span
+            className="w-3.5 h-3.5 rounded-full shrink-0"
+            style={{ backgroundColor: color.border }}
+          />
+          <span className="text-sm font-medium text-content-secondary">
+            {t('groupConfig.groupHeading', { n: index + 1 })}
+          </span>
+        </div>
+        <button
+          onClick={() => onRemovePair(pair.id)}
+          className="p-1 rounded-lg hover:bg-edge-subtle/10 text-content-muted hover:text-danger transition-colors"
+          title={t('groupConfig.removeGroup')}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        {pair.keywords.map((kw, ki) => (
+          <div key={ki} className="flex items-center gap-1.5">
+            <TagPromptSuggest
+              type={type}
+              value={kw}
+              onChange={(val) => onKeywordChange(pair.id, ki, val)}
+              placeholder={type === 'tag' ? t('groupConfig.keywordPlaceholder.tag') : t('groupConfig.keywordPlaceholder.prompt')}
+              className="flex-1"
+              inputClassName="w-full bg-surface-tertiary border border-edge-primary rounded-lg px-3 py-1.5 text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
+            />
+            {pair.keywords.length > 1 && (
+              <button
+                onClick={() => onRemoveKeyword(pair.id, ki)}
+                className="p-1.5 rounded-lg hover:bg-edge-subtle/10 text-content-muted hover:text-content-tertiary transition-colors shrink-0"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          onClick={() => onAddKeyword(pair.id)}
+          className="text-xs text-content-muted hover:text-content-tertiary transition-colors flex items-center gap-1 mt-1"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          {t('groupConfig.addKeyword')}
+        </button>
+      </div>
+    </Reorder.Item>
   );
 }

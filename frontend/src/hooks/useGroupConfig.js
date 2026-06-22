@@ -48,6 +48,8 @@ function genPairId() {
 }
 
 function assignColors(pairs) {
+  // Color sticks to the pair, not its position — so a drag-reorder preserves
+  // each group's color. Only fills in a default for pairs that don't have one yet.
   return pairs.map((p, i) => ({
     ...p,
     color: p.color || GROUP_COLORS[i % GROUP_COLORS.length].bg,
