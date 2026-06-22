@@ -1,25 +1,84 @@
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, Pencil } from 'lucide-react';
+import { Trash2, Pencil, GripVertical } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
 
-export default function GroupCard({ group, onClick, onDelete, onRename, quality = 'low' }) {
+export default function GroupCard({ group, onClick, onDelete, onRename, quality = 'low', onReorderRequest }) {
   const { t } = useLocale();
+  const ref = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [dropSide, setDropSide] = useState(null); // 'before' | 'after' | null
+  const draggableEnabled = typeof onReorderRequest === 'function';
+
+  const handleDragStart = (e) => {
+    if (!draggableEnabled) return;
+    setDragging(true);
+    e.dataTransfer.setData('text/plain', String(group.id));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setDragging(false);
+    setDropSide(null);
+  };
+
+  const handleDragOver = (e) => {
+    if (!draggableEnabled) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    setDropSide(e.clientX < rect.left + rect.width / 2 ? 'before' : 'after');
+  };
+
+  const handleDragLeave = (e) => {
+    if (!ref.current) return;
+    if (ref.current.contains(e.relatedTarget)) return;
+    setDropSide(null);
+  };
+
+  const handleDrop = (e) => {
+    if (!draggableEnabled) return;
+    e.preventDefault();
+    const sourceId = Number(e.dataTransfer.getData('text/plain'));
+    const side = dropSide;
+    setDropSide(null);
+    if (!Number.isFinite(sourceId) || sourceId === group.id || !side) return;
+    onReorderRequest(sourceId, group.id, side);
+  };
+
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
+      animate={{ opacity: dragging ? 0.35 : 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
+      draggable={draggableEnabled}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onClick={() => onClick(group)}
       className="group relative bg-surface-secondary rounded-xl border border-edge-primary overflow-hidden cursor-pointer hover:border-accent/50 hover:shadow-lg hover:shadow-accent/10 transition-all duration-200"
     >
+      {/* Drop position indicator */}
+      {dropSide === 'before' && (
+        <div className="pointer-events-none absolute -left-[10px] top-1 bottom-1 w-1 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.6)] z-20" />
+      )}
+      {dropSide === 'after' && (
+        <div className="pointer-events-none absolute -right-[10px] top-1 bottom-1 w-1 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.6)] z-20" />
+      )}
+
       {/* Cover image */}
       <div className="aspect-[4/5] bg-surface-tertiary flex items-center justify-center overflow-hidden">
         {group.cover_thumbnail_url ? (
           <img
             src={`http://localhost:8000${group.cover_thumbnail_url}?quality=${quality}`}
             alt={group.name}
+            draggable={false}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
@@ -38,6 +97,17 @@ export default function GroupCard({ group, onClick, onDelete, onRename, quality 
         <h3 className="text-sm font-semibold text-content-primary truncate">{group.name}</h3>
         <p className="text-xs text-content-muted mt-0.5">{t('groupCard.illustrationCount', { count: group.illustration_count })}</p>
       </div>
+
+      {/* Drag handle hint (hover) — visual cue; whole card is the drag source */}
+      {draggableEnabled && (
+        <div
+          className="pointer-events-none absolute top-2 left-2 p-1.5 rounded-lg bg-overlay/60 text-white/80 opacity-0 group-hover:opacity-100 transition-all"
+          title={t('groupCard.dragReorder')}
+          aria-hidden
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">

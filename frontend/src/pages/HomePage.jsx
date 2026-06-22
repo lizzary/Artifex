@@ -9,6 +9,7 @@ import GroupOverlay from '../components/GroupOverlay';
 import SearchOverlay from '../components/SearchOverlay';
 import { listGroups, createGroup, updateGroup, deleteGroup } from '../api';
 import useQuality from '../hooks/useQuality';
+import useGroupOrder from '../hooks/useGroupOrder';
 import { useLocale } from '../contexts/LocaleContext';
 
 export default function HomePage() {
@@ -22,18 +23,34 @@ export default function HomePage() {
   const [renameTarget, setRenameTarget] = useState(null); // group to rename
   const [quality] = useQuality();
   const { t } = useLocale();
+  const { applyOrder, persistOrder } = useGroupOrder();
 
   const fetchGroups = useCallback(async () => {
     try {
       const data = await listGroups();
-      setGroups(data);
+      setGroups(applyOrder(data));
       setError('');
     } catch (err) {
       setError(err.message || t('home.error.load'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyOrder]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleReorder = useCallback((sourceId, targetId, side) => {
+    setGroups((prev) => {
+      const src = prev.findIndex((g) => g.id === sourceId);
+      if (src === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(src, 1);
+      let insertAt = next.findIndex((g) => g.id === targetId);
+      if (insertAt === -1) return prev;
+      if (side === 'after') insertAt += 1;
+      next.splice(insertAt, 0, moved);
+      persistOrder(next);
+      return next;
+    });
+  }, [persistOrder]);
 
   useEffect(() => {
     fetchGroups();
@@ -82,7 +99,12 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-content-primary">{t('home.heading')}</h1>
-            <p className="text-sm text-content-muted mt-1">{t('home.subtitle', { count: groups.length })}</p>
+            <p className="text-sm text-content-muted mt-1">
+              {t('home.subtitle', { count: groups.length })}
+              {groups.length > 1 && (
+                <span className="ml-2 text-content-muted/70">· {t('home.dragHint')}</span>
+              )}
+            </p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
@@ -114,6 +136,7 @@ export default function HomePage() {
                   onClick={setSelectedGroup}
                   onDelete={setDeleteConfirm}
                   onRename={setRenameTarget}
+                  onReorderRequest={handleReorder}
                   quality={quality}
                 />
               ))}

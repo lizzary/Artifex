@@ -1,9 +1,20 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Trash2, Info } from 'lucide-react';
+import { Star, Trash2, Info, Play, Pause, ChevronDown, Timer } from 'lucide-react';
 import { getIllustrationMetadata, updateIllustration } from '../api';
 import TagPromptSuggest from './TagPromptSuggest';
 import { useLocale } from '../contexts/LocaleContext';
+
+const SLIDESHOW_INTERVAL_KEY = 'gallery_slideshow_interval';
+const SLIDESHOW_INTERVAL_MIN = 1;
+const SLIDESHOW_INTERVAL_MAX = 60;
+const SLIDESHOW_INTERVAL_DEFAULT = 3;
+const SLIDESHOW_PRESETS = [2, 3, 5, 10];
+
+function clampInterval(n) {
+  if (!Number.isFinite(n)) return SLIDESHOW_INTERVAL_DEFAULT;
+  return Math.max(SLIDESHOW_INTERVAL_MIN, Math.min(SLIDESHOW_INTERVAL_MAX, Math.round(n)));
+}
 
 export default function Lightbox({ illustrations, initialIndex, onClose, onDelete, onSetCover, onUpdate }) {
   const { t } = useLocale();
@@ -36,6 +47,15 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
   const [draftTags, setDraftTags] = useState([]);
   const [savingTags, setSavingTags] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
+
+  // ── Slideshow ───────────────────────────────────────────
+  const [slideshowOn, setSlideshowOn] = useState(false);
+  const [intervalSec, setIntervalSec] = useState(() => {
+    const stored = Number(localStorage.getItem(SLIDESHOW_INTERVAL_KEY));
+    return stored ? clampInterval(stored) : SLIDESHOW_INTERVAL_DEFAULT;
+  });
+  const [slideshowSettingsOpen, setSlideshowSettingsOpen] = useState(false);
+  const slideshowRef = useRef(null);
 
   // Sync from initialIndex when reopened with different image
   useEffect(() => {
@@ -92,6 +112,8 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
   // Keyboard handling
   useEffect(() => {
     const handleKey = (e) => {
+      const tag = e.target?.tagName;
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -105,10 +127,46 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
         e.preventDefault();
         setShowDetails((prev) => !prev);
       }
+      if ((e.key === ' ' || e.code === 'Space') && !inField) {
+        e.preventDefault();
+        if (total > 1) setSlideshowOn((s) => !s);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose, navigate]);
+  }, [onClose, navigate, total]);
+
+  // Persist interval
+  useEffect(() => {
+    localStorage.setItem(SLIDESHOW_INTERVAL_KEY, String(intervalSec));
+  }, [intervalSec]);
+
+  // Auto-advance timer
+  useEffect(() => {
+    if (!slideshowOn || total <= 1) return;
+    const id = setTimeout(() => navigate(1), intervalSec * 1000);
+    return () => clearTimeout(id);
+  }, [slideshowOn, intervalSec, currentIndex, total, navigate]);
+
+  // Pause during tag editing
+  useEffect(() => {
+    if (editingTags && slideshowOn) setSlideshowOn(false);
+  }, [editingTags, slideshowOn]);
+
+  // Stop the slideshow if the list shrinks to a single image
+  useEffect(() => {
+    if (total <= 1 && slideshowOn) setSlideshowOn(false);
+  }, [total, slideshowOn]);
+
+  // Close the settings popover on outside click
+  useEffect(() => {
+    if (!slideshowSettingsOpen) return;
+    const handler = (e) => {
+      if (!slideshowRef.current?.contains(e.target)) setSlideshowSettingsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [slideshowSettingsOpen]);
 
   if (!currentIllustration) return null;
 
@@ -207,6 +265,97 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
               </button>
             )}
 
+            {/* Slideshow control */}
+            {total > 1 && (
+              <div className="relative" ref={slideshowRef}>
+                <div className={`flex items-stretch rounded-xl overflow-hidden shadow-lg transition-shadow ${
+                  slideshowOn ? 'shadow-accent/25' : ''
+                }`}>
+                  <button
+                    onClick={() => setSlideshowOn((s) => !s)}
+                    className={`px-3.5 py-2 text-xs font-medium inline-flex items-center gap-1.5 transition-all ${
+                      slideshowOn
+                        ? 'bg-accent text-white'
+                        : 'bg-white/10 hover:bg-white/20 text-gray-300'
+                    }`}
+                    title={slideshowOn ? t('lightbox.slideshow.pauseHint') : t('lightbox.slideshow.startHint')}
+                  >
+                    {slideshowOn ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                    {slideshowOn ? t('lightbox.slideshow.pause') : t('lightbox.slideshow.start')}
+                  </button>
+                  <button
+                    onClick={() => setSlideshowSettingsOpen((s) => !s)}
+                    className={`px-2 py-2 border-l border-white/15 transition-all ${
+                      slideshowOn
+                        ? 'bg-accent/85 hover:bg-accent text-white'
+                        : 'bg-white/10 hover:bg-white/20 text-gray-400 hover:text-gray-200'
+                    }`}
+                    title={t('lightbox.slideshow.settings')}
+                    aria-label={t('lightbox.slideshow.settings')}
+                  >
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${slideshowSettingsOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                <AnimatePresence>
+                  {slideshowSettingsOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                      transition={{ duration: 0.15, ease: 'easeOut' }}
+                      className="absolute top-full right-0 mt-2 w-72 rounded-2xl border border-white/10 bg-[rgba(15,15,20,0.92)] backdrop-blur-xl shadow-2xl shadow-black/40 p-4 z-[80]"
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <Timer className="w-3.5 h-3.5 text-accent" />
+                        <h4 className="text-xs font-semibold text-gray-200 tracking-wide">
+                          {t('lightbox.slideshow.settingsHeading')}
+                        </h4>
+                      </div>
+
+                      <label className="text-[11px] text-gray-400 mb-1.5 block">
+                        {t('lightbox.slideshow.interval')}
+                      </label>
+                      <div className="flex items-center gap-2 mb-3">
+                        <input
+                          type="number"
+                          min={SLIDESHOW_INTERVAL_MIN}
+                          max={SLIDESHOW_INTERVAL_MAX}
+                          step={1}
+                          value={intervalSec}
+                          onChange={(e) => setIntervalSec(clampInterval(Number(e.target.value)))}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition-colors"
+                        />
+                        <span className="text-xs text-gray-400 shrink-0">{t('lightbox.slideshow.seconds')}</span>
+                      </div>
+
+                      <p className="text-[10px] text-gray-500 mb-1.5">{t('lightbox.slideshow.presets')}</p>
+                      <div className="flex gap-1.5 mb-3">
+                        {SLIDESHOW_PRESETS.map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => setIntervalSec(s)}
+                            className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              intervalSec === s
+                                ? 'bg-accent text-white shadow-md shadow-accent/30'
+                                : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white border border-white/5'
+                            }`}
+                          >
+                            {s}s
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="pt-3 border-t border-white/10 text-[10px] text-gray-500 flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-gray-300 font-mono">Space</kbd>
+                        {t('lightbox.slideshow.spaceHint')}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
             <button
               onClick={() => setShowDetails(!showDetails)}
               className={`px-4 py-2 rounded-xl text-sm font-medium shadow-lg transition-all hover:scale-105 inline-flex items-center gap-2 ${
@@ -262,6 +411,20 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
                   </svg>
                 </button>
               </>
+            )}
+
+            {/* Slideshow progress bar */}
+            {slideshowOn && total > 1 && (
+              <div className="pointer-events-none absolute left-4 right-4 bottom-3 h-1 rounded-full bg-white/10 overflow-hidden">
+                <motion.div
+                  key={`slideshow-progress-${currentIndex}-${intervalSec}`}
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: intervalSec, ease: 'linear' }}
+                  style={{ transformOrigin: 'left' }}
+                  className="h-full bg-accent rounded-full"
+                />
+              </div>
             )}
           </motion.div>
 
@@ -434,6 +597,15 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
             <kbd className="px-1 py-0.5 rounded bg-white/10 text-gray-400 text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-0.5 rounded bg-white/10 text-gray-400 text-[10px] font-mono">D</kbd>
             {' '}{t('lightbox.keyHints.details')}
           </span>
+          {total > 1 && (
+            <>
+              <span className="text-gray-700">|</span>
+              <span>
+                <kbd className="px-1 py-0.5 rounded bg-white/10 text-gray-400 text-[10px] font-mono">Space</kbd>
+                {' '}{t('lightbox.keyHints.slideshow')}
+              </span>
+            </>
+          )}
         </div>
       </div>
     </AnimatePresence>

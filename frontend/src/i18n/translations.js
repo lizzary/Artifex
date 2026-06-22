@@ -24,12 +24,14 @@ const translations = {
     'home.error.load': 'Failed to load groups',
     'home.error.delete': 'Delete failed',
     'home.dismiss': 'Dismiss',
+    'home.dragHint': 'Drag any card to reorder',
 
     // GroupCard
     'groupCard.noCover': 'No Cover',
     'groupCard.illustrationCount': '{count} illustrations',
     'groupCard.renameTitle': 'Rename group',
     'groupCard.deleteTitle': 'Delete group',
+    'groupCard.dragReorder': 'Drag to reorder',
 
     // CreateGroupModal
     'createGroup.heading': 'New Group',
@@ -143,6 +145,17 @@ const translations = {
     'lightbox.keyHints.navigate': 'Navigate',
     'lightbox.keyHints.close': 'Close',
     'lightbox.keyHints.details': 'Details',
+    'lightbox.keyHints.slideshow': 'Play / pause slideshow',
+    'lightbox.slideshow.start': 'Slideshow',
+    'lightbox.slideshow.pause': 'Pause',
+    'lightbox.slideshow.startHint': 'Start slideshow (Space)',
+    'lightbox.slideshow.pauseHint': 'Pause slideshow (Space)',
+    'lightbox.slideshow.settings': 'Slideshow settings',
+    'lightbox.slideshow.settingsHeading': 'Slideshow settings',
+    'lightbox.slideshow.interval': 'Interval per image',
+    'lightbox.slideshow.seconds': 'sec',
+    'lightbox.slideshow.presets': 'Quick presets',
+    'lightbox.slideshow.spaceHint': 'Press Space to play or pause',
 
     // TagsPage
     'tags.heading': 'All Tags',
@@ -311,12 +324,14 @@ const translations = {
     'home.error.load': '加载分组失败',
     'home.error.delete': '删除失败',
     'home.dismiss': '关闭',
+    'home.dragHint': '拖动卡片可调整顺序',
 
     // GroupCard
     'groupCard.noCover': '无封面',
     'groupCard.illustrationCount': '{count} 张作品',
     'groupCard.renameTitle': '重命名分组',
     'groupCard.deleteTitle': '删除分组',
+    'groupCard.dragReorder': '拖动以调整顺序',
 
     // CreateGroupModal
     'createGroup.heading': '新建分组',
@@ -430,6 +445,17 @@ const translations = {
     'lightbox.keyHints.navigate': '切换',
     'lightbox.keyHints.close': '关闭',
     'lightbox.keyHints.details': '详情',
+    'lightbox.keyHints.slideshow': '播放 / 暂停幻灯片',
+    'lightbox.slideshow.start': '幻灯片',
+    'lightbox.slideshow.pause': '暂停',
+    'lightbox.slideshow.startHint': '开始幻灯片播放（空格键）',
+    'lightbox.slideshow.pauseHint': '暂停幻灯片（空格键）',
+    'lightbox.slideshow.settings': '幻灯片设置',
+    'lightbox.slideshow.settingsHeading': '幻灯片设置',
+    'lightbox.slideshow.interval': '每张播放时长',
+    'lightbox.slideshow.seconds': '秒',
+    'lightbox.slideshow.presets': '快速预设',
+    'lightbox.slideshow.spaceHint': '按下空格键可开始或暂停',
 
     // TagsPage
     'tags.heading': '所有标签',
