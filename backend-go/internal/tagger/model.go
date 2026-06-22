@@ -59,6 +59,24 @@ func IsModelCached(modelsDir string) bool {
 	return err == nil
 }
 
+// DeleteDefaultModel removes the entire <modelsDir>/default directory so the
+// user can re-trigger a clean download after a corrupted/partial fetch.
+// If the active model is the default (active == ""), the in-memory tagger
+// session is released first so Windows doesn't keep the .onnx file locked.
+func DeleteDefaultModel(modelsDir string) error {
+	if GetActiveModel() == "" {
+		clearTaggerCache()
+	}
+	defaultDir := filepath.Join(modelsDir, "default")
+	if err := os.RemoveAll(defaultDir); err != nil {
+		return fmt.Errorf("failed to delete default model directory: %w", err)
+	}
+	if err := os.MkdirAll(defaultDir, 0755); err != nil {
+		return fmt.Errorf("failed to recreate default model directory: %w", err)
+	}
+	return nil
+}
+
 func DownloadModel(modelsDir string) error {
 	defaultDir := filepath.Join(modelsDir, "default")
 	os.MkdirAll(defaultDir, 0755)

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 const GROUP_COLORS = [
   { bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.35)' },
@@ -15,12 +15,27 @@ const GROUP_COLORS = [
 
 const OTHER_COLOR = { bg: 'rgba(156, 163, 175, 0.06)', border: 'rgba(156, 163, 175, 0.25)' };
 
-function getSetsKey(type) {
+const GLOBAL_SCOPE = 'global';
+
+function getSetsKey(scope, type) {
+  return `gallery_group_${scope}_${type}_sets`;
+}
+
+function getActiveKey(scope, type) {
+  return `gallery_group_${scope}_${type}_active`;
+}
+
+// Legacy keys (pre per-scope refactor) — read-once for migration into the global scope.
+function getLegacySetsKey(type) {
   return `gallery_group_${type}_sets`;
 }
 
-function getActiveKey(type) {
+function getLegacyActiveKey(type) {
   return `gallery_group_${type}_active`;
+}
+
+function getLegacyConfigKey(type) {
+  return `gallery_group_${type}_config`;
 }
 
 let _nextId = 1;
@@ -40,52 +55,110 @@ function assignColors(pairs) {
   }));
 }
 
-function migrateIfNeeded(type) {
-  const oldKey = `gallery_group_${type}_config`;
-  const newKey = getSetsKey(type);
-  if (localStorage.getItem(newKey)) return null;
+function readSets(scope, type) {
   try {
-    const raw = localStorage.getItem(oldKey);
-    if (raw) {
-      const data = JSON.parse(raw);
+    const raw = localStorage.getItem(getSetsKey(scope, type));
+    if (!raw) return null;
+    return JSON.parse(raw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
+  } catch {
+    return null;
+  }
+}
+
+function pickActiveId(scope, type, sets) {
+  const stored = localStorage.getItem(getActiveKey(scope, type));
+  if (stored && sets.some((s) => s.id === stored)) return stored;
+  return sets[0]?.id || null;
+}
+
+// Migrate legacy global-only storage into the new global-scoped keys (one-time).
+function migrateLegacyGlobalIfNeeded(type) {
+  const newKey = getSetsKey(GLOBAL_SCOPE, type);
+  if (localStorage.getItem(newKey)) return;
+
+  const legacySetsRaw = localStorage.getItem(getLegacySetsKey(type));
+  if (legacySetsRaw) {
+    localStorage.setItem(newKey, legacySetsRaw);
+    const legacyActive = localStorage.getItem(getLegacyActiveKey(type));
+    if (legacyActive) {
+      localStorage.setItem(getActiveKey(GLOBAL_SCOPE, type), legacyActive);
+    }
+    localStorage.removeItem(getLegacySetsKey(type));
+    localStorage.removeItem(getLegacyActiveKey(type));
+    return;
+  }
+
+  // Older legacy: single-config blob
+  const legacyConfigRaw = localStorage.getItem(getLegacyConfigKey(type));
+  if (legacyConfigRaw) {
+    try {
+      const data = JSON.parse(legacyConfigRaw);
       const defaultSet = {
         id: genSetId(),
         name: 'Default',
         pairs: assignColors(data.pairs || []),
       };
-      const sets = [defaultSet];
-      localStorage.setItem(newKey, JSON.stringify(sets));
-      localStorage.setItem(getActiveKey(type), defaultSet.id);
-      localStorage.removeItem(oldKey);
-      return { sets, activeId: defaultSet.id };
-    }
-  } catch { /* ignore */ }
-  return null;
+      localStorage.setItem(newKey, JSON.stringify([defaultSet]));
+      localStorage.setItem(getActiveKey(GLOBAL_SCOPE, type), defaultSet.id);
+      localStorage.removeItem(getLegacyConfigKey(type));
+    } catch { /* ignore */ }
+  }
 }
 
-function loadState(type) {
-  const migrated = migrateIfNeeded(type);
-  if (migrated) return migrated;
-  try {
-    const raw = localStorage.getItem(getSetsKey(type));
-    if (raw) {
-      const sets = JSON.parse(raw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
-      const activeId = (() => {
-        const id = localStorage.getItem(getActiveKey(type));
-        if (id && sets.some((s) => s.id === id)) return id;
-        return sets[0]?.id || null;
-      })();
-      return { sets, activeId };
-    }
-  } catch { /* ignore */ }
+// Seed a per-group scope from the global config (one-time per scope/type).
+// Clones sets with fresh ids so subsequent edits stay local to this group.
+function seedFromGlobalIfNeeded(scope, type) {
+  if (scope === GLOBAL_SCOPE) return null;
+  if (localStorage.getItem(getSetsKey(scope, type))) return null;
+
+  const globalSets = readSets(GLOBAL_SCOPE, type);
+  if (!globalSets || globalSets.length === 0) return null;
+
+  const cloned = globalSets.map((s) => ({
+    id: genSetId(),
+    name: s.name,
+    pairs: assignColors(
+      (s.pairs || []).map((p) => ({
+        id: genPairId(),
+        keywords: [...(p.keywords || [])],
+      })),
+    ),
+  }));
+  saveSets(scope, type, cloned);
+  saveActiveId(scope, type, cloned[0].id);
+  return { sets: cloned, activeId: cloned[0].id };
+}
+
+function loadState(scope, type) {
+  // For the global scope, migrate any legacy keys first so they become readable here.
+  if (scope === GLOBAL_SCOPE) {
+    migrateLegacyGlobalIfNeeded(type);
+  } else {
+    // For a per-group scope, the legacy keys still live under the global scope —
+    // make sure they exist there before we try to seed from them.
+    migrateLegacyGlobalIfNeeded(type);
+    const seeded = seedFromGlobalIfNeeded(scope, type);
+    if (seeded) return seeded;
+  }
+
+  const existing = readSets(scope, type);
+  if (existing) {
+    return { sets: existing, activeId: pickActiveId(scope, type, existing) };
+  }
+
   const defaultSet = { id: genSetId(), name: 'Default', pairs: [] };
-  localStorage.setItem(getSetsKey(type), JSON.stringify([defaultSet]));
-  localStorage.setItem(getActiveKey(type), defaultSet.id);
+  saveSets(scope, type, [defaultSet]);
+  saveActiveId(scope, type, defaultSet.id);
   return { sets: [defaultSet], activeId: defaultSet.id };
 }
 
-export default function useGroupConfig(type) {
-  const [state, setState] = useState(() => loadState(type));
+export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
+  const [state, setState] = useState(() => loadState(scope, type));
+
+  // Re-load when the scope changes (e.g. switching between groups in nested overlays).
+  useEffect(() => {
+    setState(loadState(scope, type));
+  }, [scope, type]);
 
   const { sets, activeId } = state;
   const activeSet = sets.find((s) => s.id === activeId) || sets[0];
@@ -93,10 +166,10 @@ export default function useGroupConfig(type) {
   const switchSet = useCallback((id) => {
     setState((prev) => {
       if (prev.activeId === id) return prev;
-      saveActiveId(type, id);
+      saveActiveId(scope, type, id);
       return { ...prev, activeId: id };
     });
-  }, [type]);
+  }, [scope, type]);
 
   const addSet = useCallback((name) => {
     setState((prev) => {
@@ -106,40 +179,40 @@ export default function useGroupConfig(type) {
         pairs: [],
       };
       const updated = [...prev.sets, newSet];
-      saveSets(type, updated);
-      saveActiveId(type, newSet.id);
+      saveSets(scope, type, updated);
+      saveActiveId(scope, type, newSet.id);
       return { sets: updated, activeId: newSet.id };
     });
-  }, [type]);
+  }, [scope, type]);
 
   const removeSet = useCallback((id) => {
     setState((prev) => {
       if (prev.sets.length <= 1) return prev;
       const updated = prev.sets.filter((s) => s.id !== id);
       const newActiveId = prev.activeId === id ? updated[0].id : prev.activeId;
-      saveSets(type, updated);
-      saveActiveId(type, newActiveId);
+      saveSets(scope, type, updated);
+      saveActiveId(scope, type, newActiveId);
       return { sets: updated, activeId: newActiveId };
     });
-  }, [type]);
+  }, [scope, type]);
 
   const renameSet = useCallback((id, name) => {
     setState((prev) => {
       const updated = prev.sets.map((s) => (s.id === id ? { ...s, name } : s));
-      saveSets(type, updated);
+      saveSets(scope, type, updated);
       return { ...prev, sets: updated };
     });
-  }, [type]);
+  }, [scope, type]);
 
   const setPairs = useCallback((pairs) => {
     setState((prev) => {
       const updated = prev.sets.map((s) =>
         s.id === prev.activeId ? { ...s, pairs: assignColors(pairs) } : s
       );
-      saveSets(type, updated);
+      saveSets(scope, type, updated);
       return { ...prev, sets: updated };
     });
-  }, [type]);
+  }, [scope, type]);
 
   return {
     sets,
@@ -158,10 +231,10 @@ export default function useGroupConfig(type) {
   };
 }
 
-function saveSets(type, sets) {
-  localStorage.setItem(getSetsKey(type), JSON.stringify(sets));
+function saveSets(scope, type, sets) {
+  localStorage.setItem(getSetsKey(scope, type), JSON.stringify(sets));
 }
 
-function saveActiveId(type, id) {
-  localStorage.setItem(getActiveKey(type), id);
+function saveActiveId(scope, type, id) {
+  localStorage.setItem(getActiveKey(scope, type), id);
 }

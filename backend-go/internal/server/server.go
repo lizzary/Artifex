@@ -78,6 +78,7 @@ func NewServer(cfg ServerConfig) *Server {
 		// Model
 		r.Get("/model/status", s.ModelStatus)
 		r.Post("/model/download", s.ModelDownload)
+		r.Delete("/model/default", s.DeleteDefaultModel)
 		r.Get("/models", s.ListModels)
 		r.Post("/models/upload", s.UploadModel)
 		r.Delete("/models/{modelName}", s.DeleteModel)

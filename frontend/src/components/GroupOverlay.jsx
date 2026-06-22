@@ -86,8 +86,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     { value: 'original', label: t('quality.original') },
   ], [t]);
 
-  const tagGroupConfig = useGroupConfig('tag');
-  const promptGroupConfig = useGroupConfig('prompt');
+  const groupScope = `group_${group.id}`;
+  const tagGroupConfig = useGroupConfig('tag', groupScope);
+  const promptGroupConfig = useGroupConfig('prompt', groupScope);
 
   const activeConfig = groupBy === 'tag' ? tagGroupConfig : promptGroupConfig;
 

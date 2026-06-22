@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Monitor, Cpu, Globe, Download, ChevronDown, Upload, X } from 'lucide-react';
+import { ArrowLeft, Monitor, Cpu, Globe, Download, ChevronDown, Upload, X, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLocale } from '../contexts/LocaleContext';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 import NamingFormatInput from '../components/NamingFormatInput';
 import useDownloadConfig from '../hooks/useDownloadConfig';
-import { listModels, uploadModel, deleteModel } from '../api';
+import { listModels, uploadModel, deleteModel, deleteDefaultModel } from '../api';
 
 const BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
 const LANG_OPTIONS = [
@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [confirmResetDefault, setConfirmResetDefault] = useState(false);
   const modelDropdownRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -137,6 +139,20 @@ export default function SettingsPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDefaultModelReset = async () => {
+    setConfirmResetDefault(false);
+    setResetting(true);
+    try {
+      await deleteDefaultModel();
+      addToast(t('settings.toast.saved'), 'success');
+      fetchModels();
+    } catch {
+      addToast(t('settings.toast.saveFailed'), 'error');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -341,6 +357,28 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {/* Reset default model — only shown when cached, lets the user wipe a broken download */}
+            {defaultCached && (
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="pr-4">
+                  <span className="text-sm font-medium text-content-primary">{t('settings.indexing.modelResetTitle')}</span>
+                  <p className="text-xs text-content-muted mt-0.5">{t('settings.indexing.modelResetDesc')}</p>
+                </div>
+                <button
+                  onClick={() => setConfirmResetDefault(true)}
+                  disabled={resetting || downloading}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2 transition-all flex-shrink-0 ${
+                    resetting
+                      ? 'bg-surface-tertiary text-content-muted cursor-wait'
+                      : 'bg-surface-tertiary border border-edge-secondary text-content-tertiary hover:border-danger/60 hover:text-danger hover:bg-danger/5'
+                  }`}
+                >
+                  <Trash2 className={`w-4 h-4 ${resetting ? 'animate-pulse' : ''}`} />
+                  {resetting ? t('settings.indexing.modelResetting') : t('settings.indexing.modelResetButton')}
+                </button>
+              </div>
+            )}
+
             {/* Auto-tag toggle */}
             <div className="flex items-center justify-between px-5 py-4">
               <div>
@@ -424,6 +462,19 @@ export default function SettingsPage() {
           cancelText={t('confirmModal.cancel')}
           onConfirm={handleModelDelete}
           onCancel={() => setDeleteTarget(null)}
+          danger
+        />
+      )}
+
+      {/* Reset default model confirmation modal */}
+      {confirmResetDefault && (
+        <ConfirmModal
+          title={t('settings.indexing.modelResetConfirmTitle')}
+          message={t('settings.indexing.modelResetConfirmMessage')}
+          confirmText={t('settings.indexing.modelResetConfirm')}
+          cancelText={t('confirmModal.cancel')}
+          onConfirm={handleDefaultModelReset}
+          onCancel={() => setConfirmResetDefault(false)}
           danger
         />
       )}

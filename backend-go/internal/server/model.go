@@ -33,6 +33,16 @@ func (s *Server) ModelDownload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
+// ── Delete Default Model ────────────────────────────────────────────────
+
+func (s *Server) DeleteDefaultModel(w http.ResponseWriter, r *http.Request) {
+	if err := tagger.DeleteDefaultModel(s.ModelsDir()); err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "deleted"})
+}
+
 // ── List Models ─────────────────────────────────────────────────────────
 
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {

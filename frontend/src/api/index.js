@@ -114,6 +114,10 @@ export function downloadModel() {
   return request('/api/model/download', { method: 'POST' });
 }
 
+export function deleteDefaultModel() {
+  return request('/api/model/default', { method: 'DELETE' });
+}
+
 export function listModels() {
   return request('/api/models');
 }
