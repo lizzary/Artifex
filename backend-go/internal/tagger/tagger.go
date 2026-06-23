@@ -7,12 +7,26 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
+
+// ortLibName returns the conventional ONNX Runtime shared library filename
+// for the current platform.
+func ortLibName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "onnxruntime.dll"
+	case "darwin":
+		return "libonnxruntime.dylib"
+	default:
+		return "libonnxruntime.so"
+	}
+}
 
 // ImageNet normalization constants (for ViT tagger preprocessing)
 var imagenetMean = []float32{0.485, 0.456, 0.406}
@@ -112,8 +126,18 @@ func LoadTagger(modelsDir string) error {
 		return fmt.Errorf("failed to parse labels: %w", err)
 	}
 
-	// Initialize ONNX Runtime (one-time, loads onnxruntime.dll)
+	// Initialize ONNX Runtime (one-time, loads the shared library)
 	if !ort.IsInitialized() {
+		// Prefer a copy bundled next to the executable. This makes the binary
+		// portable: we ship the exact ORT version we built against and the
+		// runtime loader uses it instead of a stale system copy. Falls through
+		// to the platform default search if no bundled copy is found.
+		if exe, err := os.Executable(); err == nil {
+			libPath := filepath.Join(filepath.Dir(exe), ortLibName())
+			if _, err := os.Stat(libPath); err == nil {
+				ort.SetSharedLibraryPath(libPath)
+			}
+		}
 		if err := ort.InitializeEnvironment(); err != nil {
 			return fmt.Errorf("failed to initialize ONNX Runtime: %w", err)
 		}
