@@ -65,11 +65,6 @@ jobs:
             goarch: amd64
             archive: zip
             ext: .exe
-          - target: darwin-amd64
-            os: macos-13       # Intel runner
-            goos: darwin
-            goarch: amd64
-            archive: tar.gz
           - target: darwin-arm64
             os: macos-14       # Apple Silicon runner
             goos: darwin
