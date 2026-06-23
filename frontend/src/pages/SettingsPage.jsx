@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Monitor, Cpu, Globe, Download, ChevronDown, Upload, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Monitor, Cpu, Globe, Download, ChevronDown, Upload, X, Trash2, FilePlus2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLocale } from '../contexts/LocaleContext';
 import { useToast } from '../components/Toast';
@@ -12,6 +12,10 @@ const BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:
 const LANG_OPTIONS = [
   { value: 'en', labelKey: 'settings.general.language.en' },
   { value: 'zh', labelKey: 'settings.general.language.zh' },
+];
+const CONFLICT_POLICY_OPTIONS = [
+  { value: 'skip', labelKey: 'settings.general.conflictPolicy.skip' },
+  { value: 'overwrite', labelKey: 'settings.general.conflictPolicy.overwrite' },
 ];
 
 export default function SettingsPage() {
@@ -72,6 +76,7 @@ export default function SettingsPage() {
   };
 
   const handleBackendSettingChange = async (key, value) => {
+    const prevValue = settings ? settings[key] : undefined;
     setSettings(prev => prev ? { ...prev, [key]: value } : prev);
     setSaving(true);
     try {
@@ -85,7 +90,7 @@ export default function SettingsPage() {
       setSettings(updated);
       addToast(t('settings.toast.saved'), 'success');
     } catch {
-      setSettings(prev => prev ? { ...prev, [key]: !value } : prev);
+      setSettings(prev => prev ? { ...prev, [key]: prevValue } : prev);
       addToast(t('settings.toast.saveFailed'), 'error');
     } finally {
       setSaving(false);
@@ -207,6 +212,26 @@ export default function SettingsPage() {
                 className="px-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors cursor-pointer"
               >
                 {LANG_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-start gap-3 pr-4">
+                <FilePlus2 className="w-5 h-5 text-content-tertiary mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-sm font-medium text-content-primary">{t('settings.general.conflictPolicy')}</span>
+                  <p className="text-xs text-content-muted mt-0.5">{t('settings.general.conflictPolicyDesc')}</p>
+                </div>
+              </div>
+              <select
+                value={settings?.upload_conflict_policy || 'skip'}
+                disabled={saving || !settings}
+                onChange={e => handleBackendSettingChange('upload_conflict_policy', e.target.value)}
+                className="px-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors cursor-pointer flex-shrink-0"
+              >
+                {CONFLICT_POLICY_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
                 ))}
               </select>

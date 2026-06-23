@@ -35,7 +35,12 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed := map[string]bool{"auto_tag": true, "gpu_enabled": true, "active_model": true}
+	allowed := map[string]bool{
+		"auto_tag":               true,
+		"gpu_enabled":            true,
+		"active_model":           true,
+		"upload_conflict_policy": true,
+	}
 	shouldReload := false
 	for key, val := range body {
 		if !allowed[key] {
@@ -60,6 +65,10 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 				current.ActiveModel = s
 				tagger.SetActiveModel(s)
 				shouldReload = true
+			}
+		case "upload_conflict_policy":
+			if str, ok := val.(string); ok && (str == "skip" || str == "overwrite") {
+				current.UploadConflictPolicy = str
 			}
 		}
 	}

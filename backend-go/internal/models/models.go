@@ -92,7 +92,33 @@ type ModelUploadResponse struct {
 // ── Settings ─────────────────────────────────────────────────────────────
 
 type Settings struct {
-	AutoTag     bool   `json:"auto_tag"`
-	GPUEnabled  bool   `json:"gpu_enabled"`
-	ActiveModel string `json:"active_model,omitempty"`
+	AutoTag              bool   `json:"auto_tag"`
+	GPUEnabled           bool   `json:"gpu_enabled"`
+	ActiveModel          string `json:"active_model,omitempty"`
+	UploadConflictPolicy string `json:"upload_conflict_policy"`
+}
+
+// ── Upload Result ────────────────────────────────────────────────────────
+
+type UploadConflictItem struct {
+	Filename string `json:"filename"`
+	Error    string `json:"error,omitempty"`
+}
+
+type UploadResult struct {
+	Added       []IllustrationResponse `json:"added"`
+	Skipped     []UploadConflictItem   `json:"skipped"`
+	Overwritten []UploadConflictItem   `json:"overwritten"`
+	Failed      []UploadConflictItem   `json:"failed"`
+}
+
+// ── Retag ────────────────────────────────────────────────────────────────
+
+type RetagRequest struct {
+	IDs []int `json:"ids"`
+}
+
+type RetagResult struct {
+	Updated []IllustrationResponse `json:"updated"`
+	Failed  []UploadConflictItem   `json:"failed"`
 }

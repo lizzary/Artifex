@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, Settings, Download, Trash2, X, Monitor } from 'lucide-react';
+import { Layers, Settings, Download, Trash2, X, Monitor, Tag, Loader2 } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
-import { searchIllustrations, deleteIllustration } from '../api';
+import { searchIllustrations, deleteIllustration, retagIllustrations, checkModelStatus } from '../api';
 import { useToast } from './Toast';
 import IllustrationCard from './IllustrationCard';
 import ConfirmModal from './ConfirmModal';
@@ -27,6 +27,8 @@ export default function SearchOverlay({ query, onClose }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastClickedId, setLastClickedId] = useState(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [retagging, setRetagging] = useState(false);
+  const [retagConfirm, setRetagConfirm] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [groupBy, setGroupBy] = useState(() => {
     try { return localStorage.getItem('gallery-group-by') || 'none'; }
@@ -203,6 +205,50 @@ export default function SearchOverlay({ query, onClose }) {
       addToast(t('searchOverlay.toast.batchDeleted', { n: ids.length }), 'success');
     } else {
       addToast(t('searchOverlay.toast.batchPartial', { succeeded: ids.length - failed, failed }), 'error');
+    }
+  };
+
+  const handleBatchRetag = async () => {
+    setRetagConfirm(false);
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setRetagging(true);
+    try {
+      try {
+        const status = await checkModelStatus();
+        if (!status.cached) {
+          addToast(t('searchOverlay.toast.retagNoModel'), 'error');
+          setRetagging(false);
+          return;
+        }
+      } catch { /* fall through */ }
+
+      const res = await retagIllustrations(ids);
+      const updated = res?.updated || [];
+      const failed = res?.failed || [];
+
+      if (updated.length > 0) {
+        const byId = new Map(updated.map(it => [it.id, it]));
+        setResults((prev) => prev ? {
+          ...prev,
+          items: prev.items.map((it) => byId.get(it.id) || it),
+        } : prev);
+      }
+
+      if (failed.length === 0) {
+        addToast(t('searchOverlay.toast.retagDone', { n: updated.length }), 'success');
+      } else if (updated.length === 0) {
+        addToast(t('searchOverlay.toast.retagFailed', { n: failed.length }), 'error');
+      } else {
+        addToast(
+          t('searchOverlay.toast.retagPartial', { succeeded: updated.length, failed: failed.length }),
+          'error'
+        );
+      }
+    } catch (err) {
+      addToast(err.message || t('searchOverlay.toast.retagFailed', { n: ids.length }), 'error');
+    } finally {
+      setRetagging(false);
     }
   };
 
@@ -414,6 +460,16 @@ export default function SearchOverlay({ query, onClose }) {
             <span className="text-sm text-content-secondary">{t('searchOverlay.batch.selected', { count: selectedIds.size })}</span>
             <div className="flex items-center gap-3">
               <button
+                onClick={() => setRetagConfirm(true)}
+                disabled={retagging}
+                className="px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-edge-secondary disabled:opacity-50 text-sm text-content-secondary hover:text-content-primary transition-all flex items-center gap-2 font-medium border border-transparent hover:border-edge-primary"
+              >
+                {retagging
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Tag className="w-4 h-4" />}
+                {retagging ? t('searchOverlay.batch.retagging') : t('searchOverlay.batch.retag')}
+              </button>
+              <button
                 onClick={handleBatchDownload}
                 className="px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-edge-secondary text-sm text-content-secondary hover:text-content-primary transition-all flex items-center gap-2 font-medium border border-transparent hover:border-edge-primary"
               >
@@ -477,6 +533,18 @@ export default function SearchOverlay({ query, onClose }) {
           danger
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {/* Confirm: re-tag selected illustrations */}
+      {retagConfirm && (
+        <ConfirmModal
+          title={t('searchOverlay.retag.title')}
+          message={t('searchOverlay.retag.message', { count: selectedIds.size })}
+          confirmText={t('searchOverlay.retag.confirm')}
+          cancelText={t('searchOverlay.retag.cancel')}
+          onConfirm={handleBatchRetag}
+          onCancel={() => setRetagConfirm(false)}
         />
       )}
     </>

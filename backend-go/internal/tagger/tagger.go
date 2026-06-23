@@ -145,6 +145,15 @@ func LoadTagger(modelsDir string) error {
 	return nil
 }
 
+// IsTaggerReady reports whether an ONNX session has been successfully loaded.
+// Callers that overwrite existing data (e.g. re-tagging) should check this first
+// so we never replace good tags with an empty string when the model is missing.
+func IsTaggerReady() bool {
+	taggerMu.Lock()
+	defer taggerMu.Unlock()
+	return taggerSession != nil
+}
+
 // ExtractTags runs the ONNX tagger on an image and returns comma-separated tags.
 func ExtractTags(img image.Image) string {
 	taggerMu.Lock()

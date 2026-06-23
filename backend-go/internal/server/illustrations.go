@@ -118,18 +118,88 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 	currentSettings, _ := settings.Load(s.SettingsPath())
 	autoTagEnabled := currentSettings.AutoTag && !skipAutoTag
 
-	results := make([]models.IllustrationResponse, 0)
-
-	for _, fh := range files {
-		item, err := s.processUpload(groupID, groupName, fh, autoTagEnabled)
-		if err != nil {
-			writeError(w, 500, err.Error())
-			return
-		}
-		results = append(results, *item)
+	// Allow per-request override of the conflict policy (form field), else fall back to settings.
+	conflictPolicy := strings.ToLower(strings.TrimSpace(r.FormValue("conflict_policy")))
+	if conflictPolicy != "skip" && conflictPolicy != "overwrite" {
+		conflictPolicy = currentSettings.UploadConflictPolicy
+	}
+	if conflictPolicy != "skip" && conflictPolicy != "overwrite" {
+		conflictPolicy = "skip"
 	}
 
-	writeJSON(w, 201, results)
+	result := models.UploadResult{
+		Added:       make([]models.IllustrationResponse, 0),
+		Skipped:     make([]models.UploadConflictItem, 0),
+		Overwritten: make([]models.UploadConflictItem, 0),
+		Failed:      make([]models.UploadConflictItem, 0),
+	}
+
+	for _, fh := range files {
+		safeFilename := filepath.Base(fh.Filename)
+
+		// Detect a same-original-filename conflict within this group.
+		conflictID, hasConflict := s.findConflictingIllustration(groupID, safeFilename)
+
+		if hasConflict && conflictPolicy == "skip" {
+			result.Skipped = append(result.Skipped, models.UploadConflictItem{Filename: safeFilename})
+			continue
+		}
+
+		item, err := s.processUpload(groupID, groupName, fh, autoTagEnabled)
+		if err != nil {
+			result.Failed = append(result.Failed, models.UploadConflictItem{
+				Filename: safeFilename,
+				Error:    err.Error(),
+			})
+			continue
+		}
+
+		// Drop the older record AFTER the replacement is safely on disk.
+		if hasConflict && conflictPolicy == "overwrite" {
+			s.deleteIllustrationByID(conflictID)
+			result.Overwritten = append(result.Overwritten, models.UploadConflictItem{Filename: safeFilename})
+		} else {
+			result.Added = append(result.Added, *item)
+		}
+	}
+
+	writeJSON(w, 201, result)
+}
+
+// findConflictingIllustration returns the id of an existing illustration in the
+// same group whose original_filename matches, or (0, false) if none.
+func (s *Server) findConflictingIllustration(groupID int, originalFilename string) (int, bool) {
+	db := database.GetDB()
+	var id int
+	err := db.QueryRow(
+		"SELECT id FROM illustrations WHERE group_id = ? AND original_filename = ? LIMIT 1",
+		groupID, originalFilename,
+	).Scan(&id)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+// deleteIllustrationByID removes a row and its on-disk files. Best-effort cleanup.
+func (s *Server) deleteIllustrationByID(illID int) {
+	db := database.GetDB()
+	var filename string
+	var groupID int
+	if err := db.QueryRow("SELECT filename, group_id FROM illustrations WHERE id = ?", illID).
+		Scan(&filename, &groupID); err != nil {
+		return
+	}
+	db.Exec("UPDATE groups SET cover_illustration_id = NULL WHERE cover_illustration_id = ?", illID)
+	db.Exec("DELETE FROM illustrations WHERE id = ?", illID)
+
+	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
+	for _, sub := range []string{"originals", "thumbnails", "thumbnails_normal"} {
+		fp := filepath.Join(groupDir, sub, filename)
+		if _, err := os.Stat(fp); err == nil {
+			os.Remove(fp)
+		}
+	}
 }
 
 func (s *Server) processUpload(groupID int, groupName string, fh *multipart.FileHeader, autoTag bool) (*models.IllustrationResponse, error) {
@@ -475,6 +545,96 @@ func (s *Server) ServeIllustrationThumbnail(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "image/jpeg")
 	http.ServeFile(w, r, filePath)
+}
+
+// ── Retag Illustrations ──────────────────────────────────────────────────
+
+// RetagIllustrations re-runs the tagger model on a batch of existing illustrations
+// and overwrites their `tags` column. Body: { "ids": [int, ...] }.
+func (s *Server) RetagIllustrations(w http.ResponseWriter, r *http.Request) {
+	var body models.RetagRequest
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeError(w, 400, "Invalid request body")
+		return
+	}
+	if len(body.IDs) == 0 {
+		writeError(w, 400, "No illustration ids provided")
+		return
+	}
+
+	if !tagger.IsTaggerReady() {
+		writeError(w, 503, "Tagger model is not loaded. Configure one in Settings first.")
+		return
+	}
+
+	db := database.GetDB()
+	resp := models.RetagResult{
+		Updated: make([]models.IllustrationResponse, 0),
+		Failed:  make([]models.UploadConflictItem, 0),
+	}
+
+	for _, illID := range body.IDs {
+		var filename, originalFilename string
+		var groupID int
+		err := db.QueryRow(
+			"SELECT filename, original_filename, group_id FROM illustrations WHERE id = ?",
+			illID,
+		).Scan(&filename, &originalFilename, &groupID)
+		if err == sql.ErrNoRows {
+			resp.Failed = append(resp.Failed, models.UploadConflictItem{
+				Filename: fmt.Sprintf("#%d", illID),
+				Error:    "illustration not found",
+			})
+			continue
+		}
+		if err != nil {
+			resp.Failed = append(resp.Failed, models.UploadConflictItem{
+				Filename: originalFilename,
+				Error:    "database error",
+			})
+			continue
+		}
+
+		originalPath := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), "originals", filename)
+		f, err := os.Open(originalPath)
+		if err != nil {
+			resp.Failed = append(resp.Failed, models.UploadConflictItem{
+				Filename: originalFilename,
+				Error:    "original file not found on disk",
+			})
+			continue
+		}
+		img, _, err := image.Decode(f)
+		f.Close()
+		if err != nil {
+			resp.Failed = append(resp.Failed, models.UploadConflictItem{
+				Filename: originalFilename,
+				Error:    "cannot decode image",
+			})
+			continue
+		}
+
+		tags := tagger.ExtractTags(img)
+		if _, err := db.Exec("UPDATE illustrations SET tags = ? WHERE id = ?", tags, illID); err != nil {
+			resp.Failed = append(resp.Failed, models.UploadConflictItem{
+				Filename: originalFilename,
+				Error:    "failed to update tags",
+			})
+			continue
+		}
+
+		row := db.QueryRow(`
+			SELECT i.*, g.name AS group_name
+			FROM illustrations i JOIN groups g ON i.group_id = g.id
+			WHERE i.id = ?
+		`, illID)
+		updated := scanIllustrationRow(row)
+		if updated != nil {
+			resp.Updated = append(resp.Updated, *updated)
+		}
+	}
+
+	writeJSON(w, 200, resp)
 }
 
 // ── Get Metadata ─────────────────────────────────────────────────────────

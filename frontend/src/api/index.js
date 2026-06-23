@@ -47,24 +47,34 @@ export function listIllustrations(groupId, offset = 0, limit = 200) {
   return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`);
 }
 
-export function uploadIllustrations(groupId, files, skipAutoTag = false) {
+export function uploadIllustrations(groupId, files, skipAutoTag = false, conflictPolicy) {
   const formData = new FormData();
   files.forEach((f) => formData.append('files', f));
   formData.append('skip_auto_tag', skipAutoTag ? 'true' : 'false');
+  if (conflictPolicy) formData.append('conflict_policy', conflictPolicy);
   return request(
     `/api/groups/${groupId}/illustrations/upload`,
     { method: 'POST', body: formData },
   );
 }
 
-export function uploadSingleIllustration(groupId, file, skipAutoTag = false) {
+export function uploadSingleIllustration(groupId, file, skipAutoTag = false, conflictPolicy) {
   const formData = new FormData();
   formData.append('files', file);
   formData.append('skip_auto_tag', skipAutoTag ? 'true' : 'false');
+  if (conflictPolicy) formData.append('conflict_policy', conflictPolicy);
   return request(
     `/api/groups/${groupId}/illustrations/upload`,
     { method: 'POST', body: formData },
   );
+}
+
+export function retagIllustrations(ids) {
+  return request('/api/illustrations/retag', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
 }
 
 export function getIllustration(illustrationId) {

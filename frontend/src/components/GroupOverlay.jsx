@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useDownloadConfig, { resolveFilename, sanitizeFilename } from '../hooks/useDownloadConfig';
-import { listIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings } from '../api';
+import { listIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings, retagIllustrations } from '../api';
 import { useToast } from './Toast';
 import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
@@ -14,6 +14,7 @@ import DropdownSelect from './DropdownSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
 import ModelDownloadModal from './ModelDownloadModal';
+import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig from '../hooks/useGroupConfig';
 import { matchesTagPair, matchesPromptPair, groupIllustrations } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
@@ -37,6 +38,10 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastClickedId, setLastClickedId] = useState(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [retagging, setRetagging] = useState(false);
+  const [retagConfirm, setRetagConfirm] = useState(false);
+  const [uploadSummary, setUploadSummary] = useState(null); // { added, skipped, overwritten, failed }
+  const [conflictPolicy, setConflictPolicy] = useState('skip');
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
   const [groupBy, setGroupBy] = useState(() => {
@@ -117,10 +122,15 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     fetchPage(currentPage, pageSize);
   }, [currentPage, pageSize, fetchPage]);
 
-  // Fetch settings to know whether auto-tag is enabled
+  // Fetch settings to know whether auto-tag is enabled and how to handle filename conflicts
   useEffect(() => {
     getSettings()
-      .then(data => setAutoTagEnabled(data.auto_tag ?? true))
+      .then(data => {
+        setAutoTagEnabled(data.auto_tag ?? true);
+        if (data.upload_conflict_policy === 'skip' || data.upload_conflict_policy === 'overwrite') {
+          setConflictPolicy(data.upload_conflict_policy);
+        }
+      })
       .catch(() => { /* keep default */ });
   }, []);
 
@@ -222,25 +232,44 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     setSelectedIds(new Set());
     setLastClickedId(null);
     const total = files.length;
-    let succeeded = 0;
+    const summary = { added: [], skipped: [], overwritten: [], failed: [] };
     for (let i = 0; i < total; i++) {
       const file = files[i];
       setUploadProgress({ current: i + 1, total, filename: file.name, stage: 'uploading' });
       try {
-        await uploadSingleIllustration(group.id, file, skipAutoTag);
-        succeeded++;
+        const result = await uploadSingleIllustration(group.id, file, skipAutoTag, conflictPolicy);
+        // Backend returns { added, skipped, overwritten, failed }. Be defensive
+        // in case an older backend ever returns the legacy array shape.
+        if (Array.isArray(result)) {
+          summary.added.push(...result);
+        } else if (result) {
+          if (result.added) summary.added.push(...result.added);
+          if (result.skipped) summary.skipped.push(...result.skipped);
+          if (result.overwritten) summary.overwritten.push(...result.overwritten);
+          if (result.failed) summary.failed.push(...result.failed);
+        }
       } catch (err) {
-        setError(`${file.name}: ${err.message || t('groupOverlay.upload.failed')}`);
+        summary.failed.push({ filename: file.name, error: err.message || t('groupOverlay.upload.failed') });
       }
     }
     setUploadProgress(null);
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (succeeded > 0) {
+
+    const touched = summary.added.length + summary.overwritten.length;
+    if (touched > 0) {
       await fetchPage(currentPage, pageSize);
       if (onGroupUpdated) onGroupUpdated();
     }
-  }, [group.id, currentPage, pageSize, fetchPage, onGroupUpdated, t]);
+
+    // Only show the summary modal if there's something noteworthy beyond a
+    // straightforward "all added" result.
+    if (summary.skipped.length || summary.overwritten.length || summary.failed.length) {
+      setUploadSummary(summary);
+    } else if (summary.added.length) {
+      addToast(t('groupOverlay.toast.uploadAdded', { n: summary.added.length }), 'success');
+    }
+  }, [group.id, currentPage, pageSize, fetchPage, onGroupUpdated, t, conflictPolicy, addToast]);
 
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -352,6 +381,48 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     }
     await fetchPage(currentPage, pageSize);
     if (onGroupUpdated) onGroupUpdated();
+  };
+
+  const handleBatchRetag = async () => {
+    setRetagConfirm(false);
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setRetagging(true);
+    try {
+      // Confirm the tagger model is available before kicking off a long job.
+      try {
+        const status = await checkModelStatus();
+        if (!status.cached) {
+          addToast(t('groupOverlay.toast.retagNoModel'), 'error');
+          setRetagging(false);
+          return;
+        }
+      } catch { /* fall through; backend will report any failure per-item */ }
+
+      const res = await retagIllustrations(ids);
+      const updated = res?.updated || [];
+      const failed = res?.failed || [];
+
+      if (updated.length > 0) {
+        const byId = new Map(updated.map(it => [it.id, it]));
+        setIllustrations((prev) => prev.map((it) => byId.get(it.id) || it));
+      }
+
+      if (failed.length === 0) {
+        addToast(t('groupOverlay.toast.retagDone', { n: updated.length }), 'success');
+      } else if (updated.length === 0) {
+        addToast(t('groupOverlay.toast.retagFailed', { n: failed.length }), 'error');
+      } else {
+        addToast(
+          t('groupOverlay.toast.retagPartial', { succeeded: updated.length, failed: failed.length }),
+          'error'
+        );
+      }
+    } catch (err) {
+      addToast(err.message || t('groupOverlay.toast.retagFailed', { n: ids.length }), 'error');
+    } finally {
+      setRetagging(false);
+    }
   };
 
   const handleBatchDownload = async () => {
@@ -738,6 +809,16 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             <span className="text-sm text-content-secondary">{t('groupOverlay.batch.selected', { count: selectedIds.size })}</span>
             <div className="flex items-center gap-3">
               <button
+                onClick={() => setRetagConfirm(true)}
+                disabled={retagging}
+                className="px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-edge-secondary disabled:opacity-50 text-sm text-content-secondary hover:text-content-primary transition-all flex items-center gap-2 font-medium border border-transparent hover:border-edge-primary"
+              >
+                {retagging
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Tag className="w-4 h-4" />}
+                {retagging ? t('groupOverlay.batch.retagging') : t('groupOverlay.batch.retag')}
+              </button>
+              <button
                 onClick={handleBatchDownload}
                 className="px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-edge-secondary text-sm text-content-secondary hover:text-content-primary transition-all flex items-center gap-2 font-medium border border-transparent hover:border-edge-primary"
               >
@@ -806,6 +887,26 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
           danger
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {/* Confirm: re-tag selected illustrations */}
+      {retagConfirm && (
+        <ConfirmModal
+          title={t('groupOverlay.retag.title')}
+          message={t('groupOverlay.retag.message', { count: selectedIds.size })}
+          confirmText={t('groupOverlay.retag.confirm')}
+          cancelText={t('groupOverlay.retag.cancel')}
+          onConfirm={handleBatchRetag}
+          onCancel={() => setRetagConfirm(false)}
+        />
+      )}
+
+      {/* Upload summary modal */}
+      {uploadSummary && (
+        <UploadSummaryModal
+          summary={uploadSummary}
+          onClose={() => setUploadSummary(null)}
         />
       )}
 

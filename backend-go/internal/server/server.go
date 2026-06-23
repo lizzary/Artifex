@@ -68,6 +68,7 @@ func NewServer(cfg ServerConfig) *Server {
 		r.Get("/illustrations/{illustrationId}/file", s.ServeIllustrationFile)
 		r.Get("/illustrations/{illustrationId}/thumbnail", s.ServeIllustrationThumbnail)
 		r.Get("/illustrations/{illustrationId}/metadata", s.GetIllustrationMetadata)
+		r.Post("/illustrations/retag", s.RetagIllustrations)
 
 		// Search
 		r.Get("/search", s.SearchIllustrations)
