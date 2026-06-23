@@ -92,10 +92,12 @@ type ModelUploadResponse struct {
 // ── Settings ─────────────────────────────────────────────────────────────
 
 type Settings struct {
-	AutoTag              bool   `json:"auto_tag"`
-	GPUEnabled           bool   `json:"gpu_enabled"`
-	ActiveModel          string `json:"active_model,omitempty"`
-	UploadConflictPolicy string `json:"upload_conflict_policy"`
+	AutoTag              bool                   `json:"auto_tag"`
+	GPUEnabled           bool                   `json:"gpu_enabled"`
+	ActiveModel          string                 `json:"active_model,omitempty"`
+	UploadConflictPolicy string                 `json:"upload_conflict_policy"`
+	GroupOrder           []int                  `json:"group_order"`
+	GroupConfigs         map[string]interface{} `json:"group_configs"`
 }
 
 // ── Upload Result ────────────────────────────────────────────────────────

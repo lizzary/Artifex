@@ -5,6 +5,7 @@ import { useLocale } from '../contexts/LocaleContext';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 import NamingFormatInput from '../components/NamingFormatInput';
+import SettingsSelect from '../components/SettingsSelect';
 import useDownloadConfig from '../hooks/useDownloadConfig';
 import { listModels, uploadModel, deleteModel, deleteDefaultModel } from '../api';
 
@@ -206,15 +207,12 @@ export default function SettingsPage() {
                 <Globe className="w-5 h-5 text-content-tertiary" />
                 <span className="text-sm font-medium text-content-primary">{t('settings.general.language')}</span>
               </div>
-              <select
+              <SettingsSelect
                 value={locale}
-                onChange={e => setLocale(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors cursor-pointer"
-              >
-                {LANG_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
-                ))}
-              </select>
+                onChange={setLocale}
+                ariaLabel={t('settings.general.language')}
+                options={LANG_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+              />
             </div>
 
             <div className="flex items-center justify-between px-5 py-4">
@@ -225,16 +223,17 @@ export default function SettingsPage() {
                   <p className="text-xs text-content-muted mt-0.5">{t('settings.general.conflictPolicyDesc')}</p>
                 </div>
               </div>
-              <select
+              <SettingsSelect
                 value={settings?.upload_conflict_policy || 'skip'}
                 disabled={saving || !settings}
-                onChange={e => handleBackendSettingChange('upload_conflict_policy', e.target.value)}
-                className="px-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors cursor-pointer flex-shrink-0"
-              >
-                {CONFLICT_POLICY_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
-                ))}
-              </select>
+                onChange={(v) => handleBackendSettingChange('upload_conflict_policy', v)}
+                ariaLabel={t('settings.general.conflictPolicy')}
+                minWidth={180}
+                options={CONFLICT_POLICY_OPTIONS.map((opt) => ({
+                  value: opt.value,
+                  label: t(opt.labelKey),
+                }))}
+              />
             </div>
           </div>
         </section>

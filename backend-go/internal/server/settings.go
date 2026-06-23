@@ -9,6 +9,27 @@ import (
 	"artifex-backend/internal/tagger"
 )
 
+// coerceIntSlice accepts a JSON value that should be an array of integers and
+// returns the canonicalised slice. Empty for any malformed shape.
+func coerceIntSlice(raw interface{}) []int {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return []int{}
+	}
+	out := make([]int, 0, len(arr))
+	for _, v := range arr {
+		switch n := v.(type) {
+		case float64:
+			out = append(out, int(n))
+		case int:
+			out = append(out, n)
+		case int64:
+			out = append(out, int(n))
+		}
+	}
+	return out
+}
+
 // ── Get Settings ────────────────────────────────────────────────────────
 
 func (s *Server) GetSettings(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +61,8 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"gpu_enabled":            true,
 		"active_model":           true,
 		"upload_conflict_policy": true,
+		"group_order":            true,
+		"group_configs":          true,
 	}
 	shouldReload := false
 	for key, val := range body {
@@ -69,6 +92,19 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		case "upload_conflict_policy":
 			if str, ok := val.(string); ok && (str == "skip" || str == "overwrite") {
 				current.UploadConflictPolicy = str
+			}
+		case "group_order":
+			current.GroupOrder = coerceIntSlice(val)
+		case "group_configs":
+			// Re-encode and decode into the typed shape so we don't store random
+			// non-JSON values from misbehaving clients.
+			raw, err := json.Marshal(val)
+			if err != nil {
+				continue
+			}
+			var typed settings.GroupConfigs
+			if err := json.Unmarshal(raw, &typed); err == nil {
+				current.GroupConfigs = typed
 			}
 		}
 	}
