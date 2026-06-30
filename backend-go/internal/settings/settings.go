@@ -2,7 +2,6 @@ package settings
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 )
 
@@ -55,7 +54,6 @@ func Load(path string) (*Settings, error) {
 }
 
 func Save(path string, s *Settings) error {
-	fmt.Println(s.UploadConflictPolicy)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
