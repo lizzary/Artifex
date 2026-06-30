@@ -120,11 +120,8 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 
 	// Allow per-request override of the conflict policy (form field), else fall back to settings.
 	conflictPolicy := strings.ToLower(strings.TrimSpace(r.FormValue("conflict_policy")))
-	if conflictPolicy != "skip" && conflictPolicy != "overwrite" {
+	if conflictPolicy != "save_all" && conflictPolicy != "skip" && conflictPolicy != "overwrite" {
 		conflictPolicy = currentSettings.UploadConflictPolicy
-	}
-	if conflictPolicy != "skip" && conflictPolicy != "overwrite" {
-		conflictPolicy = "skip"
 	}
 
 	result := models.UploadResult{

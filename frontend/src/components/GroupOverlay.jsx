@@ -41,7 +41,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [retagging, setRetagging] = useState(false);
   const [retagConfirm, setRetagConfirm] = useState(false);
   const [uploadSummary, setUploadSummary] = useState(null); // { added, skipped, overwritten, failed }
-  const [conflictPolicy, setConflictPolicy] = useState('skip');
+  const [conflictPolicy, setConflictPolicy] = useState('save_all');
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
   const [groupBy, setGroupBy] = useState(() => {
@@ -127,7 +127,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     getSettings()
       .then(data => {
         setAutoTagEnabled(data.auto_tag ?? true);
-        if (data.upload_conflict_policy === 'skip' || data.upload_conflict_policy === 'overwrite') {
+        if (data.upload_conflict_policy === 'save_all' || data.upload_conflict_policy === 'skip' || data.upload_conflict_policy === 'overwrite') {
           setConflictPolicy(data.upload_conflict_policy);
         }
       })

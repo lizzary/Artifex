@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -23,7 +24,7 @@ func Load(path string) (*Settings, error) {
 	s := &Settings{
 		AutoTag:              true,
 		GPUEnabled:           false,
-		UploadConflictPolicy: "skip",
+		UploadConflictPolicy: "save_all",
 		GroupOrder:           []int{},
 		GroupConfigs:         GroupConfigs{},
 	}
@@ -40,8 +41,8 @@ func Load(path string) (*Settings, error) {
 		return s, nil // Return defaults on parse error
 	}
 
-	if s.UploadConflictPolicy != "skip" && s.UploadConflictPolicy != "overwrite" {
-		s.UploadConflictPolicy = "skip"
+	if s.UploadConflictPolicy != "save_all" && s.UploadConflictPolicy != "skip" && s.UploadConflictPolicy != "overwrite" {
+		s.UploadConflictPolicy = "save_all"
 	}
 	if s.GroupOrder == nil {
 		s.GroupOrder = []int{}
@@ -54,6 +55,7 @@ func Load(path string) (*Settings, error) {
 }
 
 func Save(path string, s *Settings) error {
+	fmt.Println(s.UploadConflictPolicy)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

@@ -15,8 +15,9 @@ const LANG_OPTIONS = [
   { value: 'zh', labelKey: 'settings.general.language.zh' },
 ];
 const CONFLICT_POLICY_OPTIONS = [
-  { value: 'skip', labelKey: 'settings.general.conflictPolicy.skip' },
-  { value: 'overwrite', labelKey: 'settings.general.conflictPolicy.overwrite' },
+  {value: 'save_all', labelKey: 'settings.general.conflictPolicy.save_all'},
+  {value: 'skip', labelKey: 'settings.general.conflictPolicy.skip'},
+  {value: 'overwrite', labelKey: 'settings.general.conflictPolicy.overwrite'},
 ];
 
 export default function SettingsPage() {

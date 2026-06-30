@@ -90,7 +90,7 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 				shouldReload = true
 			}
 		case "upload_conflict_policy":
-			if str, ok := val.(string); ok && (str == "skip" || str == "overwrite") {
+			if str, ok := val.(string); ok && (str == "save_all" || str == "skip" || str == "overwrite") {
 				current.UploadConflictPolicy = str
 			}
 		case "group_order":
