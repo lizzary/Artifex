@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getSettings, updateSettings } from '../api';
+import { normalizePairTerms } from '../utils/grouping';
 
 const GROUP_COLORS = [
   { bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.35)' },
@@ -15,15 +16,10 @@ const GROUP_COLORS = [
 ];
 
 const OTHER_COLOR = { bg: 'rgba(156, 163, 175, 0.06)', border: 'rgba(156, 163, 175, 0.25)' };
-
 const GLOBAL_SCOPE = 'global';
 
-// ── Module-level cache so multiple hook instances coordinate ────────────
-//
-// Without this, every (scope, type) pair would race to read/write the same
-// settings blob and stomp each other. The cache holds the latest known
-// `group_configs` map; reads are coalesced through `ensureLoaded()` and writes
-// flush via a single in-flight PUT chain.
+// Multiple overlays can mount this hook. Keep one settings cache and serialize
+// writes so separate scopes never overwrite one another with a stale blob.
 let cachedConfigs = null;
 let loadPromise = null;
 let writeChain = Promise.resolve();
@@ -32,8 +28,10 @@ function ensureLoaded() {
   if (cachedConfigs !== null) return Promise.resolve(cachedConfigs);
   if (loadPromise) return loadPromise;
   loadPromise = getSettings()
-    .then((s) => {
-      cachedConfigs = (s && typeof s.group_configs === 'object' && s.group_configs) ? s.group_configs : {};
+    .then((settings) => {
+      cachedConfigs = (settings && typeof settings.group_configs === 'object' && settings.group_configs)
+        ? settings.group_configs
+        : {};
       return cachedConfigs;
     })
     .catch(() => {
@@ -45,8 +43,6 @@ function ensureLoaded() {
 }
 
 function persistEntry(scope, type, value) {
-  // Serialize writes so concurrent mutations from different (scope, type)
-  // pairs don't race; each one reads the latest cache and writes a fresh blob.
   writeChain = writeChain.then(async () => {
     const configs = cachedConfigs ? { ...cachedConfigs } : {};
     const scoped = configs[scope] ? { ...configs[scope] } : {};
@@ -55,28 +51,66 @@ function persistEntry(scope, type, value) {
     cachedConfigs = configs;
     try {
       await updateSettings({ group_configs: configs });
-    } catch { /* swallow — next mutation will retry */ }
+    } catch { /* a later mutation retries with the latest cached value */ }
   });
   return writeChain;
 }
 
-// ── Legacy localStorage migration ───────────────────────────────────────
-
 function legacySetsKey(scope, type) { return `gallery_group_${scope}_${type}_sets`; }
 function legacyActiveKey(scope, type) { return `gallery_group_${scope}_${type}_active`; }
-// Even older keys, only relevant for the global scope.
 function oldSetsKey(type) { return `gallery_group_${type}_sets`; }
 function oldActiveKey(type) { return `gallery_group_${type}_active`; }
 function oldConfigKey(type) { return `gallery_group_${type}_config`; }
+
+let idCounter = 1;
+function genSetId() { return `set_${Date.now()}_${idCounter++}`; }
+function genPairId() { return `pair_${Date.now()}_${idCounter++}`; }
+
+function normalizeMatchOrder(order, pairs) {
+  const ids = new Set(pairs.map((pair) => pair.id));
+  const supplied = Array.isArray(order) ? order.filter((id) => ids.has(id)) : [];
+  return [...supplied, ...pairs.map((pair) => pair.id).filter((id) => !supplied.includes(id))];
+}
+
+function assignColors(pairs, fallbackScope = 'all') {
+  return pairs.map((pair, index) => {
+    const { keywords, ...rest } = pair || {};
+    return {
+      ...rest,
+      id: pair?.id || genPairId(),
+      terms: normalizePairTerms(pair, fallbackScope),
+      color: pair?.color || GROUP_COLORS[index % GROUP_COLORS.length].bg,
+      borderColor: pair?.borderColor || GROUP_COLORS[index % GROUP_COLORS.length].border,
+    };
+  });
+}
+
+function normalizeEntry(entry, fallbackScope = 'all') {
+  const rawSets = Array.isArray(entry?.sets) ? entry.sets : [];
+  const sets = rawSets.map((set, index) => {
+    const pairs = assignColors(set.pairs || [], fallbackScope);
+    return {
+      ...set,
+      id: set.id || genSetId(),
+      name: set.name || `Set ${index + 1}`,
+      pairs,
+      match_order: normalizeMatchOrder(set.match_order, pairs),
+    };
+  });
+  const activeId = entry?.active_id && sets.some((set) => set.id === entry.active_id)
+    ? entry.active_id
+    : (sets[0]?.id || null);
+  return { sets, active_id: activeId };
+}
 
 function readLegacyEntry(scope, type) {
   try {
     const setsRaw = localStorage.getItem(legacySetsKey(scope, type));
     if (setsRaw) {
-      const sets = JSON.parse(setsRaw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
-      const stored = localStorage.getItem(legacyActiveKey(scope, type));
-      const activeId = (stored && sets.some((s) => s.id === stored)) ? stored : (sets[0]?.id || null);
-      return { sets, active_id: activeId };
+      return normalizeEntry({
+        sets: JSON.parse(setsRaw),
+        active_id: localStorage.getItem(legacyActiveKey(scope, type)),
+      }, type);
     }
   } catch { /* fall through */ }
 
@@ -84,26 +118,25 @@ function readLegacyEntry(scope, type) {
     try {
       const setsRaw = localStorage.getItem(oldSetsKey(type));
       if (setsRaw) {
-        const sets = JSON.parse(setsRaw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
-        const stored = localStorage.getItem(oldActiveKey(type));
-        const activeId = (stored && sets.some((s) => s.id === stored)) ? stored : (sets[0]?.id || null);
-        return { sets, active_id: activeId };
+        return normalizeEntry({
+          sets: JSON.parse(setsRaw),
+          active_id: localStorage.getItem(oldActiveKey(type)),
+        }, type);
       }
     } catch { /* fall through */ }
 
     try {
-      const cfgRaw = localStorage.getItem(oldConfigKey(type));
-      if (cfgRaw) {
-        const data = JSON.parse(cfgRaw);
+      const configRaw = localStorage.getItem(oldConfigKey(type));
+      if (configRaw) {
+        const data = JSON.parse(configRaw);
         const setId = genSetId();
-        return {
-          sets: [{ id: setId, name: 'Default', pairs: assignColors(data.pairs || []) }],
+        return normalizeEntry({
+          sets: [{ id: setId, name: 'Default', pairs: data.pairs || [] }],
           active_id: setId,
-        };
+        }, type);
       }
     } catch { /* ignore */ }
   }
-
   return null;
 }
 
@@ -119,53 +152,94 @@ function dropLegacyEntry(scope, type) {
   } catch { /* ignore */ }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-let _idCounter = 1;
-function genSetId() { return `set_${Date.now()}_${_idCounter++}`; }
-function genPairId() { return `pair_${Date.now()}_${_idCounter++}`; }
-
-function assignColors(pairs) {
-  // Color sticks to the pair, not its position — drag-reorder preserves
-  // each group's color. Only fills in defaults for pairs that don't have one yet.
-  return pairs.map((p, i) => ({
-    ...p,
-    color: p.color || GROUP_COLORS[i % GROUP_COLORS.length].bg,
-    borderColor: p.borderColor || GROUP_COLORS[i % GROUP_COLORS.length].border,
-  }));
+function legacySourcesForScope(configs, scope) {
+  return ['tag', 'prompt'].flatMap((sourceType) => {
+    const remote = configs?.[scope]?.[sourceType];
+    const entry = remote?.sets?.length
+      ? normalizeEntry(remote, sourceType)
+      : readLegacyEntry(scope, sourceType);
+    return entry?.sets?.length ? [{ sourceType, entry }] : [];
+  });
 }
 
-function cloneGlobalForScope(globalEntry) {
-  // Re-id everything so the per-group scope can drift independently from the
-  // global template.
-  const cloned = globalEntry.sets.map((s) => ({
-    id: genSetId(),
-    name: s.name,
-    pairs: assignColors(
-      (s.pairs || []).map((p) => ({
-        id: genPairId(),
-        keywords: [...(p.keywords || [])],
-      })),
-    ),
-  }));
-  return { sets: cloned, active_id: cloned[0]?.id || null };
+function mergeLegacySources(sources) {
+  const setsByName = new Map();
+  let activeId = null;
+
+  for (const { sourceType, entry } of sources) {
+    const nameOccurrences = new Map();
+    for (const sourceSet of entry.sets) {
+      const name = sourceSet.name || 'Default';
+      const occurrence = nameOccurrences.get(name) || 0;
+      nameOccurrences.set(name, occurrence + 1);
+      const mergeKey = `${name}\u0000${occurrence}`;
+      let target = setsByName.get(mergeKey);
+      if (!target) {
+        target = { id: genSetId(), name, pairs: [], match_order: [] };
+        setsByName.set(mergeKey, target);
+      }
+
+      const idMap = new Map();
+      const migratedPairs = sourceSet.pairs.map((pair) => {
+        const nextId = genPairId();
+        idMap.set(pair.id, nextId);
+        return {
+          ...pair,
+          id: nextId,
+          terms: normalizePairTerms(pair, sourceType),
+        };
+      });
+      target.pairs.push(...migratedPairs);
+      const sourceOrder = normalizeMatchOrder(sourceSet.match_order, sourceSet.pairs);
+      target.match_order.push(...sourceOrder.map((id) => idMap.get(id)).filter(Boolean));
+
+      if (!activeId && sourceSet.id === entry.active_id) activeId = target.id;
+    }
+  }
+
+  const sets = [...setsByName.values()];
+  return normalizeEntry({ sets, active_id: activeId || sets[0]?.id }, 'all');
+}
+
+function cloneEntryForScope(entry) {
+  const normalized = normalizeEntry(entry, 'all');
+  const setIdMap = new Map();
+  const sets = normalized.sets.map((set) => {
+    const setId = genSetId();
+    setIdMap.set(set.id, setId);
+    const pairIdMap = new Map();
+    const pairs = set.pairs.map((pair) => {
+      const pairId = genPairId();
+      pairIdMap.set(pair.id, pairId);
+      return {
+        ...pair,
+        id: pairId,
+        terms: normalizePairTerms(pair).map((term) => ({ ...term })),
+      };
+    });
+    return {
+      ...set,
+      id: setId,
+      pairs,
+      match_order: normalizeMatchOrder(set.match_order, set.pairs).map((id) => pairIdMap.get(id)).filter(Boolean),
+    };
+  });
+  return {
+    sets,
+    active_id: setIdMap.get(normalized.active_id) || sets[0]?.id || null,
+  };
 }
 
 function makeDefaultEntry() {
-  const defaultSet = { id: genSetId(), name: 'Default', pairs: [] };
+  const defaultSet = { id: genSetId(), name: 'Default', pairs: [], match_order: [] };
   return { sets: [defaultSet], active_id: defaultSet.id };
 }
 
-// ── Hook ────────────────────────────────────────────────────────────────
-
 export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
   const [state, setState] = useState({ sets: [], activeId: null });
-  // Latest state ref for the debounced flush — avoids closure staleness.
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Initial load: pull from cache (or settings → cache), with legacy
-  // localStorage migration and per-group seeding from global.
   useEffect(() => {
     let cancelled = false;
 
@@ -174,39 +248,52 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
       if (cancelled) return;
 
       const remote = configs?.[scope]?.[type];
-      if (remote && Array.isArray(remote.sets) && remote.sets.length > 0) {
-        const sets = remote.sets.map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
-        const activeId = (remote.active_id && sets.some((s) => s.id === remote.active_id))
-          ? remote.active_id
-          : sets[0].id;
-        setState({ sets, activeId });
+      if (remote?.sets?.length) {
+        const normalized = normalizeEntry(remote, type === 'mixed' ? 'all' : type);
+        setState({ sets: normalized.sets, activeId: normalized.active_id });
         return;
       }
 
-      // Try migrating from localStorage on first server-empty load.
-      const legacy = readLegacyEntry(scope, type);
-      if (legacy && legacy.sets.length > 0) {
-        setState({ sets: legacy.sets, activeId: legacy.active_id });
-        persistEntry(scope, type, { sets: legacy.sets, active_id: legacy.active_id })
-          .then(() => dropLegacyEntry(scope, type));
+      const sameTypeLegacy = readLegacyEntry(scope, type);
+      if (sameTypeLegacy?.sets?.length) {
+        setState({ sets: sameTypeLegacy.sets, activeId: sameTypeLegacy.active_id });
+        persistEntry(scope, type, sameTypeLegacy).then(() => dropLegacyEntry(scope, type));
         return;
       }
 
-      // For per-group scopes, seed from global if it exists so the user keeps
-      // the same defaults they'd configured globally.
-      if (scope !== GLOBAL_SCOPE) {
-        const globalEntry = configs?.[GLOBAL_SCOPE]?.[type];
-        if (globalEntry && Array.isArray(globalEntry.sets) && globalEntry.sets.length > 0) {
-          const seeded = cloneGlobalForScope({
-            sets: globalEntry.sets.map((s) => ({ ...s, pairs: assignColors(s.pairs || []) })),
+      // The unified configuration absorbs both former tag and prompt configs.
+      // Sets with the same name are merged; each legacy term keeps its original
+      // source scope so migration cannot broaden an existing rule.
+      if (type === 'mixed') {
+        const sources = legacySourcesForScope(configs, scope);
+        if (sources.length > 0) {
+          const merged = mergeLegacySources(sources);
+          setState({ sets: merged.sets, activeId: merged.active_id });
+          persistEntry(scope, type, merged).then(() => {
+            dropLegacyEntry(scope, 'tag');
+            dropLegacyEntry(scope, 'prompt');
           });
+          return;
+        }
+      }
+
+      if (scope !== GLOBAL_SCOPE) {
+        let globalEntry = configs?.[GLOBAL_SCOPE]?.[type];
+        if (!globalEntry?.sets?.length && type === 'mixed') {
+          const globalSources = legacySourcesForScope(configs, GLOBAL_SCOPE);
+          if (globalSources.length > 0) {
+            globalEntry = mergeLegacySources(globalSources);
+            persistEntry(GLOBAL_SCOPE, type, globalEntry);
+          }
+        }
+        if (globalEntry?.sets?.length) {
+          const seeded = cloneEntryForScope(globalEntry);
           setState({ sets: seeded.sets, activeId: seeded.active_id });
           persistEntry(scope, type, seeded);
           return;
         }
       }
 
-      // Nothing yet — create a fresh default entry and persist it.
       const fresh = makeDefaultEntry();
       setState({ sets: fresh.sets, activeId: fresh.active_id });
       persistEntry(scope, type, fresh);
@@ -217,43 +304,43 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
 
   const flushNow = useCallback(() => {
     const { sets, activeId } = stateRef.current;
-    if (!sets || sets.length === 0) return;
+    if (!sets?.length) return;
     persistEntry(scope, type, { sets, active_id: activeId });
   }, [scope, type]);
 
   const { sets, activeId } = state;
-  const activeSet = sets.find((s) => s.id === activeId) || sets[0];
+  const activeSet = sets.find((set) => set.id === activeId) || sets[0];
 
   const switchSet = useCallback((id) => {
-    setState((prev) => {
-      if (prev.activeId === id) return prev;
-      const next = { ...prev, activeId: id };
+    setState((previous) => {
+      if (previous.activeId === id) return previous;
+      const next = { ...previous, activeId: id };
+      stateRef.current = next;
+      persistEntry(scope, type, { sets: next.sets, active_id: id });
+      return next;
+    });
+  }, [scope, type]);
+
+  const addSet = useCallback((name) => {
+    setState((previous) => {
+      const newSet = {
+        id: genSetId(),
+        name: name || `Set ${previous.sets.length + 1}`,
+        pairs: [],
+        match_order: [],
+      };
+      const next = { sets: [...previous.sets, newSet], activeId: newSet.id };
       stateRef.current = next;
       persistEntry(scope, type, { sets: next.sets, active_id: next.activeId });
       return next;
     });
   }, [scope, type]);
 
-  const addSet = useCallback((name) => {
-    setState((prev) => {
-      const newSet = {
-        id: genSetId(),
-        name: name || `Set ${prev.sets.length + 1}`,
-        pairs: [],
-      };
-      const sets = [...prev.sets, newSet];
-      const next = { sets, activeId: newSet.id };
-      stateRef.current = next;
-      persistEntry(scope, type, { sets, active_id: next.activeId });
-      return next;
-    });
-  }, [scope, type]);
-
   const removeSet = useCallback((id) => {
-    setState((prev) => {
-      if (prev.sets.length <= 1) return prev;
-      const sets = prev.sets.filter((s) => s.id !== id);
-      const activeId = prev.activeId === id ? sets[0].id : prev.activeId;
+    setState((previous) => {
+      if (previous.sets.length <= 1) return previous;
+      const sets = previous.sets.filter((set) => set.id !== id);
+      const activeId = previous.activeId === id ? sets[0].id : previous.activeId;
       const next = { sets, activeId };
       stateRef.current = next;
       persistEntry(scope, type, { sets, active_id: activeId });
@@ -262,23 +349,29 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
   }, [scope, type]);
 
   const renameSet = useCallback((id, name) => {
-    setState((prev) => {
-      const sets = prev.sets.map((s) => (s.id === id ? { ...s, name } : s));
-      const next = { ...prev, sets };
+    setState((previous) => {
+      const sets = previous.sets.map((set) => (set.id === id ? { ...set, name } : set));
+      const next = { ...previous, sets };
       stateRef.current = next;
-      persistEntry(scope, type, { sets, active_id: prev.activeId });
+      persistEntry(scope, type, { sets, active_id: previous.activeId });
       return next;
     });
   }, [scope, type]);
 
-  const setPairs = useCallback((pairs) => {
-    setState((prev) => {
-      const sets = prev.sets.map((s) =>
-        s.id === prev.activeId ? { ...s, pairs: assignColors(pairs) } : s
-      );
-      const next = { ...prev, sets };
+  const setPairs = useCallback((pairs, matchOrder) => {
+    setState((previous) => {
+      const sets = previous.sets.map((set) => {
+        if (set.id !== previous.activeId) return set;
+        const normalizedPairs = assignColors(pairs, 'all');
+        return {
+          ...set,
+          pairs: normalizedPairs,
+          match_order: normalizeMatchOrder(matchOrder ?? set.match_order, normalizedPairs),
+        };
+      });
+      const next = { ...previous, sets };
       stateRef.current = next;
-      persistEntry(scope, type, { sets, active_id: prev.activeId });
+      persistEntry(scope, type, { sets, active_id: previous.activeId });
       return next;
     });
   }, [scope, type]);
@@ -287,12 +380,11 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
     sets,
     activeSetId: activeId,
     activeSet: activeSet || sets[0],
-    // Backward-compatible convenience accessors
     pairs: activeSet?.pairs || [],
+    matchOrder: activeSet?.match_order || [],
     setPairs,
     otherColor: OTHER_COLOR,
     palette: GROUP_COLORS,
-    // Set management
     switchSet,
     addSet,
     removeSet,

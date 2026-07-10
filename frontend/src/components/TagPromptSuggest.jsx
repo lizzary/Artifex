@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { listTags, listPrompts } from '../api';
 import { useLocale } from '../contexts/LocaleContext';
 
@@ -23,6 +23,7 @@ export default function TagPromptSuggest({
   const dropdownRef = useRef(null);
   const suppressRef = useRef(true);
   const skipFocusRef = useRef(false);
+  const listboxId = useId();
   const { t } = useLocale();
 
   // Fetch full list once, using cache
@@ -55,18 +56,19 @@ export default function TagPromptSuggest({
       .then(([tags, prompts]) => {
         if (cancelled) return;
         const map = new Map();
-        for (const t of tags) map.set(t, { types: ['tag'] });
-        for (const p of prompts) {
-          if (map.has(p)) {
-            map.get(p).types.push('prompt');
+        for (const tag of tags) {
+          const key = tag.toLowerCase();
+          map.set(key, { text: tag, types: ['tag'] });
+        }
+        for (const prompt of prompts) {
+          const key = prompt.toLowerCase();
+          if (map.has(key)) {
+            map.get(key).types.push('prompt');
           } else {
-            map.set(p, { types: ['prompt'] });
+            map.set(key, { text: prompt, types: ['prompt'] });
           }
         }
-        const merged = [...map.entries()].map(([text, meta]) => ({
-          text,
-          types: meta.types,
-        }));
+        const merged = [...map.values()];
         _cache.mixed = merged;
         setAllItems(merged);
       })
@@ -161,6 +163,8 @@ export default function TagPromptSuggest({
         setShowDropdown(false);
         setActiveIndex(-1);
         break;
+      default:
+        break;
     }
   };
 
@@ -193,6 +197,10 @@ export default function TagPromptSuggest({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoComplete="off"
+        role="combobox"
+        aria-expanded={showDropdown}
+        aria-autocomplete="list"
+        aria-controls={listboxId}
         className={inputClassName}
       />
       {showDropdown && (() => {
@@ -201,7 +209,9 @@ export default function TagPromptSuggest({
         return (
         <div
           ref={dropdownRef}
+          id={listboxId}
           className="absolute top-full left-0 right-0 mt-1 bg-surface-tertiary border border-edge-secondary rounded-lg shadow-xl z-50 overflow-hidden"
+          role="listbox"
         >
           {suggestions.map((item, idx) => {
             const exact = isExact(item);
@@ -209,6 +219,8 @@ export default function TagPromptSuggest({
             <button
               key={resolveItemText(item)}
               onClick={() => selectSuggestion(item)}
+              role="option"
+              aria-selected={idx === activeIndex}
               className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${
                 idx === activeIndex
                   ? 'bg-accent/30'

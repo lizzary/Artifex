@@ -35,11 +35,11 @@ Artifex sits between ComfyUI and the filesystem:
   fallback otherwise.
 - **Full-text search over tags and prompts** — SQLite FTS5 with prefix
   matching: "suns" finds "sunset", "sunshine", "sunlight".
-- **Mutually-exclusive color grouping** — define ordered keyword-pair
-  rules; each image is assigned to the *first* matching rule and
-  rendered inside a colored, collapsible container. The signature
-  feature for visually organizing thousands of generations by theme,
-  character, or style at a glance.
+- **Mutually-exclusive smart grouping** — combine tags and prompt terms
+  with `AND`, `OR`, and parentheses; each image is assigned to the
+  highest-priority matching rule and rendered inside a colored,
+  collapsible container. Match priority and page order are configured
+  independently.
 
 ## Quick start
 
@@ -95,17 +95,25 @@ Requirements at a glance:
 
 ### Mutually-exclusive color grouping
 
-Artifex's signature organizing feature. Define ordered **keyword pairs** —
-each pair specifies a set of keywords that must all match for an image to
-belong to that group. Images are assigned to the **first** matching pair,
-making groups mutually exclusive; anything unmatched falls into "Other".
+Artifex's signature organizing feature. Each rule can combine **tags and
+positive/negative prompt terms** in one expression. Conditions support
+`AND`, `OR`, and nested parentheses, with standard precedence:
+parentheses first, then `AND`, then `OR`.
+
+Rules have an explicit **match priority**. Higher-priority groups run
+first, and an image leaves the pipeline as soon as it matches, keeping
+groups mutually exclusive; anything unmatched falls into "Other".
+Match priority is independent from the drag order used to arrange groups
+on the page.
 
 Each group gets a distinct color and is rendered as a collapsible
 container, visually separating themes, characters, or styles at a glance.
 
-- **Tag-based groups** — match against image tags (auto-generated or custom)
-- **Prompt-based groups** — match against the positive and negative
-  prompt text extracted from ComfyUI metadata
+- **Mixed-source autocomplete** — every condition suggests both existing
+  tags and prompt terms, with a source badge
+- **Source-aware conditions** — search tags, prompts, or both for each term
+- **Independent ordering** — drag full cards for page order and compact
+  priority blocks for first-match order
 
 You can save multiple grouping configurations (sets) and switch between
 them; each has its own independent definitions.
