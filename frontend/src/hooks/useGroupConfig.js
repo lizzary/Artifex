@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getSettings, updateSettings } from '../api';
+import { keywordsToExpr } from '../utils/grouping';
 
 const GROUP_COLORS = [
   { bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.35)' },
@@ -73,7 +74,7 @@ function readLegacyEntry(scope, type) {
   try {
     const setsRaw = localStorage.getItem(legacySetsKey(scope, type));
     if (setsRaw) {
-      const sets = JSON.parse(setsRaw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
+      const sets = JSON.parse(setsRaw).map(normalizeSet);
       const stored = localStorage.getItem(legacyActiveKey(scope, type));
       const activeId = (stored && sets.some((s) => s.id === stored)) ? stored : (sets[0]?.id || null);
       return { sets, active_id: activeId };
@@ -84,7 +85,7 @@ function readLegacyEntry(scope, type) {
     try {
       const setsRaw = localStorage.getItem(oldSetsKey(type));
       if (setsRaw) {
-        const sets = JSON.parse(setsRaw).map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
+        const sets = JSON.parse(setsRaw).map(normalizeSet);
         const stored = localStorage.getItem(oldActiveKey(type));
         const activeId = (stored && sets.some((s) => s.id === stored)) ? stored : (sets[0]?.id || null);
         return { sets, active_id: activeId };
@@ -97,7 +98,7 @@ function readLegacyEntry(scope, type) {
         const data = JSON.parse(cfgRaw);
         const setId = genSetId();
         return {
-          sets: [{ id: setId, name: 'Default', pairs: assignColors(data.pairs || []) }],
+          sets: [normalizeSet({ id: setId, name: 'Default', pairs: data.pairs || [] })],
           active_id: setId,
         };
       }
@@ -135,24 +136,88 @@ function assignColors(pairs) {
   }));
 }
 
+// Normalize a stored set into the current shape:
+//  - every pair carries an `expr` (migrated from the old `keywords` list)
+//  - the set carries a `priorityOrder` (list of pair ids; defaults to display order)
+// `priorityOrder` is kept independent of `pairs` order: `pairs` is the display
+// order, `priorityOrder` is the match order.
+function normalizeSet(s) {
+  const pairs = assignColors(
+    (s.pairs || []).map((p) => ({
+      ...p,
+      expr: p.expr != null ? p.expr : keywordsToExpr(p.keywords || []),
+    })),
+  );
+  const valid = Array.isArray(s.priorityOrder)
+    ? s.priorityOrder.filter((id) => pairs.some((p) => p.id === id))
+    : [];
+  const priorityOrder = [...valid];
+  for (const p of pairs) if (!priorityOrder.includes(p.id)) priorityOrder.push(p.id);
+  return { ...s, pairs, priorityOrder };
+}
+
+// Reconcile a proposed priority order against the current pair set: drop stale
+// ids, then append any pairs missing from the order.
+function reconcilePriority(pairs, priorityOrder) {
+  const valid = (Array.isArray(priorityOrder) ? priorityOrder : []).filter((id) =>
+    pairs.some((p) => p.id === id),
+  );
+  const result = [...valid];
+  for (const p of pairs) if (!result.includes(p.id)) result.push(p.id);
+  return result;
+}
+
 function cloneGlobalForScope(globalEntry) {
   // Re-id everything so the per-group scope can drift independently from the
-  // global template.
-  const cloned = globalEntry.sets.map((s) => ({
-    id: genSetId(),
-    name: s.name,
-    pairs: assignColors(
+  // global template. Pair ids change, so priorityOrder is rebuilt to match.
+  const cloned = globalEntry.sets.map((s) => {
+    const pairs = assignColors(
       (s.pairs || []).map((p) => ({
         id: genPairId(),
-        keywords: [...(p.keywords || [])],
+        expr: p.expr != null ? p.expr : keywordsToExpr(p.keywords || []),
+        color: p.color,
+        borderColor: p.borderColor,
       })),
-    ),
-  }));
+    );
+    return { id: genSetId(), name: s.name, pairs, priorityOrder: pairs.map((p) => p.id) };
+  });
   return { sets: cloned, active_id: cloned[0]?.id || null };
 }
 
+// Best-effort migration for the merged grouping: seed the `combined` type from
+// any pre-existing `tag` / `prompt` configs in the same scope. Sets are merged
+// by name so a "Default" tag set and "Default" prompt set fold into one.
+function seedFromLegacyTypes(configs, scope) {
+  const collect = (entry) => (entry && Array.isArray(entry.sets) ? entry.sets : []);
+  const legacySets = [
+    ...collect(configs?.[scope]?.tag),
+    ...collect(configs?.[scope]?.prompt),
+  ];
+  if (legacySets.length === 0) return null;
+
+  const byName = new Map();
+  for (const s of legacySets) {
+    const key = s.name || 'Default';
+    const pairs = (s.pairs || []).map((p) => ({
+      id: genPairId(),
+      expr: p.expr != null ? p.expr : keywordsToExpr(p.keywords || []),
+    }));
+    if (byName.has(key)) byName.get(key).push(...pairs);
+    else byName.set(key, [...pairs]);
+  }
+
+  const sets = [...byName.entries()]
+    .map(([name, pairs]) => {
+      const colored = assignColors(pairs);
+      return { id: genSetId(), name, pairs: colored, priorityOrder: colored.map((p) => p.id) };
+    })
+    .filter((s) => s.pairs.length > 0);
+  if (sets.length === 0) return null;
+  return { sets, active_id: sets[0].id };
+}
+
 function makeDefaultEntry() {
-  const defaultSet = { id: genSetId(), name: 'Default', pairs: [] };
+  const defaultSet = { id: genSetId(), name: 'Default', pairs: [], priorityOrder: [] };
   return { sets: [defaultSet], active_id: defaultSet.id };
 }
 
@@ -175,7 +240,7 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
 
       const remote = configs?.[scope]?.[type];
       if (remote && Array.isArray(remote.sets) && remote.sets.length > 0) {
-        const sets = remote.sets.map((s) => ({ ...s, pairs: assignColors(s.pairs || []) }));
+        const sets = remote.sets.map(normalizeSet);
         const activeId = (remote.active_id && sets.some((s) => s.id === remote.active_id))
           ? remote.active_id
           : sets[0].id;
@@ -197,9 +262,18 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
       if (scope !== GLOBAL_SCOPE) {
         const globalEntry = configs?.[GLOBAL_SCOPE]?.[type];
         if (globalEntry && Array.isArray(globalEntry.sets) && globalEntry.sets.length > 0) {
-          const seeded = cloneGlobalForScope({
-            sets: globalEntry.sets.map((s) => ({ ...s, pairs: assignColors(s.pairs || []) })),
-          });
+          const seeded = cloneGlobalForScope({ sets: globalEntry.sets.map(normalizeSet) });
+          setState({ sets: seeded.sets, activeId: seeded.active_id });
+          persistEntry(scope, type, seeded);
+          return;
+        }
+      }
+
+      // Merged grouping: seed `combined` from any legacy tag / prompt configs so
+      // groups the user built before the merge aren't lost.
+      if (type === 'combined') {
+        const seeded = seedFromLegacyTypes(configs, scope);
+        if (seeded) {
           setState({ sets: seeded.sets, activeId: seeded.active_id });
           persistEntry(scope, type, seeded);
           return;
@@ -240,6 +314,7 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
         id: genSetId(),
         name: name || `Set ${prev.sets.length + 1}`,
         pairs: [],
+        priorityOrder: [],
       };
       const sets = [...prev.sets, newSet];
       const next = { sets, activeId: newSet.id };
@@ -273,9 +348,28 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
 
   const setPairs = useCallback((pairs) => {
     setState((prev) => {
-      const sets = prev.sets.map((s) =>
-        s.id === prev.activeId ? { ...s, pairs: assignColors(pairs) } : s
-      );
+      const sets = prev.sets.map((s) => {
+        if (s.id !== prev.activeId) return s;
+        const np = assignColors(pairs);
+        return { ...s, pairs: np, priorityOrder: reconcilePriority(np, s.priorityOrder) };
+      });
+      const next = { ...prev, sets };
+      stateRef.current = next;
+      persistEntry(scope, type, { sets, active_id: prev.activeId });
+      return next;
+    });
+  }, [scope, type]);
+
+  // Commit the active set's display order (`pairs`) and match order
+  // (`priorityOrder`) together. Priority is reconciled against the pair set so
+  // stale / missing ids can never desync the two orderings.
+  const commitActiveSet = useCallback((pairs, priorityOrder) => {
+    setState((prev) => {
+      const sets = prev.sets.map((s) => {
+        if (s.id !== prev.activeId) return s;
+        const np = assignColors(pairs);
+        return { ...s, pairs: np, priorityOrder: reconcilePriority(np, priorityOrder) };
+      });
       const next = { ...prev, sets };
       stateRef.current = next;
       persistEntry(scope, type, { sets, active_id: prev.activeId });
@@ -289,7 +383,9 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
     activeSet: activeSet || sets[0],
     // Backward-compatible convenience accessors
     pairs: activeSet?.pairs || [],
+    priorityOrder: activeSet?.priorityOrder || [],
     setPairs,
+    commitActiveSet,
     otherColor: OTHER_COLOR,
     palette: GROUP_COLORS,
     // Set management

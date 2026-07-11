@@ -14,7 +14,7 @@ import DropdownSelect from './DropdownSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
 import useGroupConfig from '../hooks/useGroupConfig';
-import { matchesTagPair, matchesPromptPair, groupIllustrations } from '../utils/grouping';
+import { groupIllustrations } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
 
 // ── Main component ───────────────────────────────────────
@@ -31,8 +31,10 @@ export default function SearchOverlay({ query, onClose }) {
   const [retagConfirm, setRetagConfirm] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [groupBy, setGroupBy] = useState(() => {
-    try { return localStorage.getItem('gallery-group-by') || 'none'; }
-    catch { return 'none'; }
+    try {
+      const v = localStorage.getItem('gallery-group-by');
+      return (v === 'combined' || v === 'tag' || v === 'prompt') ? 'combined' : 'none';
+    } catch { return 'none'; }
   });
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
@@ -46,8 +48,7 @@ export default function SearchOverlay({ query, onClose }) {
 
   const translatedGroupOptions = useMemo(() => [
     { value: 'none', label: t('dropdown.noGrouping') },
-    { value: 'tag', label: t('dropdown.groupByTag') },
-    { value: 'prompt', label: t('dropdown.groupByPrompt') },
+    { value: 'combined', label: t('dropdown.grouping') },
   ], [t]);
 
   const translatedQualityOptions = useMemo(() => [
@@ -56,10 +57,7 @@ export default function SearchOverlay({ query, onClose }) {
     { value: 'original', label: t('quality.original') },
   ], [t]);
 
-  const tagGroupConfig = useGroupConfig('tag');
-  const promptGroupConfig = useGroupConfig('prompt');
-
-  const activeConfig = groupBy === 'tag' ? tagGroupConfig : promptGroupConfig;
+  const activeConfig = useGroupConfig('combined');
 
   useEffect(() => {
     let cancelled = false;
@@ -105,8 +103,7 @@ export default function SearchOverlay({ query, onClose }) {
 
   const groupedIllustrations = useMemo(() => {
     if (groupBy === 'none' || activeConfig.pairs.length === 0 || filteredItems.length === 0) return null;
-    const matchFn = groupBy === 'tag' ? matchesTagPair : matchesPromptPair;
-    return groupIllustrations(filteredItems, activeConfig.pairs, activeConfig.otherColor, matchFn);
+    return groupIllustrations(filteredItems, activeConfig.pairs, activeConfig.priorityOrder, activeConfig.otherColor);
   }, [groupBy, filteredItems, activeConfig]);
 
   const displayedItems = useMemo(() => {
@@ -364,7 +361,7 @@ export default function SearchOverlay({ query, onClose }) {
                     <button
                       onClick={() => setShowGroupConfig(true)}
                       className="p-2 rounded-lg bg-surface-tertiary border border-edge-secondary hover:border-edge-primary text-content-tertiary hover:text-content-primary transition-all"
-                      title={groupBy === 'tag' ? t('searchOverlay.group.configTag') : t('searchOverlay.group.configPrompt')}
+                      title={t('searchOverlay.group.config')}
                     >
                       <Settings className="w-3.5 h-3.5" />
                     </button>
@@ -500,7 +497,6 @@ export default function SearchOverlay({ query, onClose }) {
       <AnimatePresence>
         {showGroupConfig && (
           <GroupConfigModal
-            type={groupBy}
             config={activeConfig}
             onClose={() => setShowGroupConfig(false)}
           />

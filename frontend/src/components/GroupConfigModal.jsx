@@ -1,108 +1,77 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
-import { Plus, Trash2, Pencil, GripVertical } from 'lucide-react';
-import TagPromptSuggest from './TagPromptSuggest';
+import { useState, useEffect, useMemo } from 'react';
+import { motion, Reorder, useDragControls } from 'framer-motion';
+import { Plus, Trash2, Pencil, GripVertical, GripHorizontal, ArrowRight, ListOrdered } from 'lucide-react';
+import ExpressionInput from './ExpressionInput';
 import { useLocale } from '../contexts/LocaleContext';
 
-export default function GroupConfigModal({ type, config, onClose }) {
+export default function GroupConfigModal({ config, onClose }) {
   const { t } = useLocale();
-  const { sets, activeSetId, switchSet, addSet, removeSet, renameSet, setPairs, palette } = config;
+  const { sets, activeSetId, switchSet, addSet, removeSet, renameSet, commitActiveSet, palette } = config;
 
   const activeSet = sets.find((s) => s.id === activeSetId) || sets[0];
 
-  // Local editing state — staged until Save
-  const [editingPairs, setEditingPairs] = useState([]);
+  // Local editing state — staged until Save.
+  const [editingPairs, setEditingPairs] = useState([]);   // display order
+  const [editingPriority, setEditingPriority] = useState([]); // ids in match-priority order
   const [editingName, setEditingName] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null); // set id pending deletion
 
-  // Sync local editing state whenever activeSetId or sets change
+  // Sync local editing state whenever activeSetId or sets change.
   useEffect(() => {
     const target = sets.find((s) => s.id === activeSetId);
     if (target) {
-      setEditingPairs((target.pairs || []).map((p) => ({ ...p, keywords: [...p.keywords] })));
+      setEditingPairs((target.pairs || []).map((p) => ({ ...p })));
       setEditingName(target.name || '');
+      const order = Array.isArray(target.priorityOrder) && target.priorityOrder.length
+        ? target.priorityOrder
+        : (target.pairs || []).map((p) => p.id);
+      setEditingPriority([...order]);
     }
     setDeleteConfirm(null);
   }, [activeSetId, sets]);
 
-  const handleSwitchSet = (setId) => {
-    // Save staged edits to current set before switching
-    const cleaned = editingPairs
-      .map((p) => ({ ...p, keywords: p.keywords.map((k) => k.trim()).filter(Boolean) }))
-      .filter((p) => p.keywords.length > 0);
-    setPairs(cleaned);
+  const cleanPairs = () =>
+    editingPairs
+      .map((p) => ({ ...p, expr: (p.expr || '').trim() }))
+      .filter((p) => p.expr.length > 0);
+
+  const commitCurrent = () => {
+    commitActiveSet(cleanPairs(), editingPriority);
     if (editingName.trim() && editingName.trim() !== activeSet?.name) {
       renameSet(activeSetId, editingName.trim());
     }
+  };
+
+  const handleSwitchSet = (setId) => {
+    commitCurrent();
     switchSet(setId);
   };
 
   const handleAddSet = () => {
-    // Save current first
-    const cleaned = editingPairs
-      .map((p) => ({ ...p, keywords: p.keywords.map((k) => k.trim()).filter(Boolean) }))
-      .filter((p) => p.keywords.length > 0);
-    setPairs(cleaned);
-    if (editingName.trim() && editingName.trim() !== activeSet?.name) {
-      renameSet(activeSetId, editingName.trim());
-    }
+    commitCurrent();
     addSet(); // hook auto-switches to new set, useEffect syncs local state
   };
 
   const handleSave = () => {
-    const name = editingName.trim();
-    if (name && name !== activeSet?.name) {
-      renameSet(activeSetId, name);
-    }
-    const cleaned = editingPairs
-      .map((p) => ({ ...p, keywords: p.keywords.map((k) => k.trim()).filter(Boolean) }))
-      .filter((p) => p.keywords.length > 0);
-    setPairs(cleaned);
+    commitCurrent();
     onClose();
   };
 
-  const handleKeywordChange = (pairId, index, value) => {
-    setEditingPairs((prev) =>
-      prev.map((p) => {
-        if (p.id !== pairId) return p;
-        const kw = [...p.keywords];
-        kw[index] = value;
-        return { ...p, keywords: kw };
-      })
-    );
-  };
-
-  const handleAddKeyword = (pairId) => {
-    setEditingPairs((prev) =>
-      prev.map((p) => {
-        if (p.id !== pairId) return p;
-        return { ...p, keywords: [...p.keywords, ''] };
-      })
-    );
-  };
-
-  const handleRemoveKeyword = (pairId, index) => {
-    setEditingPairs((prev) =>
-      prev.map((p) => {
-        if (p.id !== pairId) return p;
-        const kw = p.keywords.filter((_, i) => i !== index);
-        return { ...p, keywords: kw.length === 0 ? [''] : kw };
-      })
-    );
+  const handleExprChange = (pairId, value) => {
+    setEditingPairs((prev) => prev.map((p) => (p.id === pairId ? { ...p, expr: value } : p)));
   };
 
   const handleAddPair = () => {
     const id = `pair_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const idx = editingPairs.length;
     const color = palette[idx % palette.length];
-    setEditingPairs((prev) => [
-      ...prev,
-      { id, keywords: [''], color: color.bg, borderColor: color.border },
-    ]);
+    setEditingPairs((prev) => [...prev, { id, expr: '', color: color.bg, borderColor: color.border }]);
+    setEditingPriority((prev) => [...prev, id]);
   };
 
   const handleRemovePair = (pairId) => {
     setEditingPairs((prev) => prev.filter((p) => p.id !== pairId));
+    setEditingPriority((prev) => prev.filter((id) => id !== pairId));
   };
 
   const handleDeleteSet = () => {
@@ -113,6 +82,27 @@ export default function GroupConfigModal({ type, config, onClose }) {
     removeSet(deleteConfirm);
     setDeleteConfirm(null);
   };
+
+  // Stable "Group N" label follows the display order, so a priority chip and a
+  // group card can be matched up by both colour and number.
+  const displayIndexById = useMemo(() => {
+    const map = new Map();
+    editingPairs.forEach((p, i) => map.set(p.id, i));
+    return map;
+  }, [editingPairs]);
+
+  // Pairs arranged in match-priority order for the draggable chips row.
+  const priorityPairs = useMemo(() => {
+    const byId = new Map(editingPairs.map((p) => [p.id, p]));
+    const seen = new Set();
+    const ordered = [];
+    for (const id of editingPriority) {
+      const p = byId.get(id);
+      if (p && !seen.has(id)) { ordered.push(p); seen.add(id); }
+    }
+    for (const p of editingPairs) if (!seen.has(p.id)) ordered.push(p);
+    return ordered;
+  }, [editingPairs, editingPriority]);
 
   return (
     <motion.div
@@ -130,7 +120,7 @@ export default function GroupConfigModal({ type, config, onClose }) {
         {/* Header */}
         <div className="px-6 py-4 border-b border-edge-primary flex items-center justify-between">
           <h3 className="text-base font-semibold text-content-primary">
-            {type === 'tag' ? t('groupConfig.titleTag') : t('groupConfig.titlePrompt')}
+            {t('groupConfig.title.combined')}
           </h3>
           <button
             onClick={onClose}
@@ -210,11 +200,53 @@ export default function GroupConfigModal({ type, config, onClose }) {
             )}
           </div>
 
-          <p className="text-xs text-content-muted leading-relaxed">
-            {t('groupConfig.help.general')}
-            {type === 'prompt' && <> {t('groupConfig.help.prompt')}</>}
-            {' '}{t('groupConfig.help.other')}
-          </p>
+          {/* How grouping works */}
+          <div className="rounded-xl bg-surface-tertiary/50 border border-edge-secondary/60 px-3.5 py-3 space-y-1.5">
+            <p className="text-xs text-content-secondary leading-relaxed">{t('groupConfig.help.general')}</p>
+            <p className="text-[11px] text-content-muted leading-relaxed">{t('groupConfig.help.expr')}</p>
+            <p className="text-[11px] text-content-muted leading-relaxed">{t('groupConfig.help.other')}</p>
+          </div>
+
+          {/* Match priority — drag to reorder how groups compete for images */}
+          {editingPairs.length > 1 && (
+            <div className="rounded-xl border border-edge-secondary/60 bg-surface-tertiary/30 px-3.5 py-3">
+              <div className="flex items-center gap-2 mb-1">
+                <ListOrdered className="w-3.5 h-3.5 text-accent" />
+                <span className="text-xs font-semibold text-content-secondary">{t('groupConfig.priority.title')}</span>
+              </div>
+              <p className="text-[11px] text-content-muted leading-relaxed mb-2.5">{t('groupConfig.priority.hint')}</p>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-medium text-accent/80 shrink-0 uppercase tracking-wide">{t('groupConfig.priority.high')}</span>
+                <Reorder.Group
+                  as="div"
+                  axis="x"
+                  values={priorityPairs}
+                  onReorder={(next) => setEditingPriority(next.map((p) => p.id))}
+                  className="flex items-center gap-1.5 overflow-x-auto py-1 flex-1"
+                >
+                  {priorityPairs.map((pair) => (
+                    <PriorityChip
+                      key={pair.id}
+                      pair={pair}
+                      n={(displayIndexById.get(pair.id) ?? 0) + 1}
+                      t={t}
+                    />
+                  ))}
+                </Reorder.Group>
+                <ArrowRight className="w-3.5 h-3.5 text-content-muted shrink-0" />
+                <span className="text-[10px] font-medium text-content-muted shrink-0 uppercase tracking-wide">{t('groupConfig.priority.low')}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Display order label */}
+          {editingPairs.length > 0 && (
+            <div className="flex items-center gap-2 pt-1">
+              <GripVertical className="w-3.5 h-3.5 text-content-muted" />
+              <span className="text-xs font-semibold text-content-secondary">{t('groupConfig.display.title')}</span>
+              <span className="text-[11px] text-content-muted">{t('groupConfig.display.hint')}</span>
+            </div>
+          )}
 
           {editingPairs.length === 0 && (
             <div className="text-center py-8 text-content-muted text-sm">
@@ -241,11 +273,8 @@ export default function GroupConfigModal({ type, config, onClose }) {
                     pair={pair}
                     index={pi}
                     color={color}
-                    type={type}
                     t={t}
-                    onKeywordChange={handleKeywordChange}
-                    onAddKeyword={handleAddKeyword}
-                    onRemoveKeyword={handleRemoveKeyword}
+                    onExprChange={handleExprChange}
                     onRemovePair={handleRemovePair}
                   />
                 );
@@ -297,7 +326,27 @@ export default function GroupConfigModal({ type, config, onClose }) {
   );
 }
 
-function PairItem({ pair, index, color, type, t, onKeywordChange, onAddKeyword, onRemoveKeyword, onRemovePair }) {
+// A small draggable block representing one group in the match-priority order.
+function PriorityChip({ pair, n, t }) {
+  return (
+    <Reorder.Item
+      as="div"
+      value={pair}
+      className="shrink-0 flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-lg border cursor-grab active:cursor-grabbing select-none touch-none"
+      style={{ backgroundColor: pair.color, borderColor: pair.borderColor }}
+      whileDrag={{ scale: 1.06 }}
+      title={pair.expr || t('groupConfig.groupHeading', { n })}
+    >
+      <GripHorizontal className="w-3.5 h-3.5 text-content-muted" />
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pair.borderColor }} />
+      <span className="text-xs font-medium text-content-secondary whitespace-nowrap">
+        {t('groupConfig.groupHeading', { n })}
+      </span>
+    </Reorder.Item>
+  );
+}
+
+function PairItem({ pair, index, color, t, onExprChange, onRemovePair }) {
   const dragControls = useDragControls();
 
   return (
@@ -314,8 +363,8 @@ function PairItem({ pair, index, color, type, t, onKeywordChange, onAddKeyword, 
             type="button"
             onPointerDown={(e) => { e.preventDefault(); dragControls.start(e); }}
             className="p-1 -m-1 rounded text-content-muted hover:text-content-secondary cursor-grab active:cursor-grabbing touch-none"
-            title={t('groupConfig.dragReorder')}
-            aria-label={t('groupConfig.dragReorder')}
+            title={t('groupConfig.display.dragReorder')}
+            aria-label={t('groupConfig.display.dragReorder')}
           >
             <GripVertical className="w-4 h-4" />
           </button>
@@ -338,39 +387,12 @@ function PairItem({ pair, index, color, type, t, onKeywordChange, onAddKeyword, 
         </button>
       </div>
 
-      <div className="space-y-1.5">
-        {pair.keywords.map((kw, ki) => (
-          <div key={ki} className="flex items-center gap-1.5">
-            <TagPromptSuggest
-              type={type}
-              value={kw}
-              onChange={(val) => onKeywordChange(pair.id, ki, val)}
-              placeholder={type === 'tag' ? t('groupConfig.keywordPlaceholder.tag') : t('groupConfig.keywordPlaceholder.prompt')}
-              className="flex-1"
-              inputClassName="w-full bg-surface-tertiary border border-edge-primary rounded-lg px-3 py-1.5 text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
-            />
-            {pair.keywords.length > 1 && (
-              <button
-                onClick={() => onRemoveKeyword(pair.id, ki)}
-                className="p-1.5 rounded-lg hover:bg-edge-subtle/10 text-content-muted hover:text-content-tertiary transition-colors shrink-0"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-        ))}
-        <button
-          onClick={() => onAddKeyword(pair.id)}
-          className="text-xs text-content-muted hover:text-content-tertiary transition-colors flex items-center gap-1 mt-1"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          {t('groupConfig.addKeyword')}
-        </button>
-      </div>
+      <ExpressionInput
+        value={pair.expr || ''}
+        onChange={(val) => onExprChange(pair.id, val)}
+        placeholder={t('groupConfig.exprPlaceholder')}
+        inputClassName="w-full bg-surface-tertiary border border-edge-primary rounded-lg pl-3 pr-8 py-1.5 text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
+      />
     </Reorder.Item>
   );
 }
