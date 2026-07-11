@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
 import {
-  Brackets, ChevronDown, GripVertical, Layers3, MessageSquareText,
-  Pencil, Plus, Sparkles, Tag, Trash2, X,
+  GripVertical, Layers3, Pencil, Plus, Trash2, X,
 } from 'lucide-react';
 import TagPromptSuggest from './TagPromptSuggest';
+import SettingsSelect from './SettingsSelect';
 import { useLocale } from '../contexts/LocaleContext';
 import { expressionLabel, normalizePairTerms, validateExpression } from '../utils/grouping';
 
@@ -114,7 +114,7 @@ export default function GroupConfigModal({ config, onClose }) {
         ? {
           ...pair,
           terms: [...normalizePairTerms(pair), {
-            value: '', scope: 'all', operator: 'and', open: 0, close: 0,
+            value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0,
           }],
         }
         : pair
@@ -126,7 +126,7 @@ export default function GroupConfigModal({ config, onClose }) {
       if (pair.id !== pairId) return pair;
       const terms = normalizePairTerms(pair).filter((_, index) => index !== termIndex);
       if (terms.length === 0) {
-        return { ...pair, terms: [{ value: '', scope: 'all', operator: 'and', open: 0, close: 0 }] };
+        return { ...pair, terms: [{ value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0 }] };
       }
       terms[0] = { ...terms[0], operator: 'and' };
       return { ...pair, terms };
@@ -138,7 +138,7 @@ export default function GroupConfigModal({ config, onClose }) {
     const color = palette[editingPairs.length % palette.length];
     const pair = {
       id,
-      terms: [{ value: '', scope: 'all', operator: 'and', open: 0, close: 0 }],
+      terms: [{ value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0 }],
       color: color.bg,
       borderColor: color.border,
     };
@@ -209,7 +209,16 @@ export default function GroupConfigModal({ config, onClose }) {
         </div>
 
         <div className="border-b border-edge-primary px-5 pt-4 sm:px-6">
-          <p className="mb-2.5 text-[11px] text-content-muted">{t('groupConfig.sets.switchHint')}</p>
+          <div className="mb-3 space-y-1 text-[11px] leading-relaxed text-content-muted">
+            <p>{t('groupConfig.sets.switchHint')}</p>
+            <p>{t('groupConfig.sets.ruleGuide')}</p>
+            <p className="flex flex-wrap items-center gap-1.5">
+              <span className="font-medium text-content-tertiary">{t('groupConfig.sets.exampleLabel')}</span>
+              <code className="rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">
+                {t('groupConfig.sets.example')}
+              </code>
+            </p>
+          </div>
           <div className="flex items-center gap-1.5 overflow-x-auto pb-3">
             {sets.map((set, index) => {
               const isActive = set.id === activeSetId;
@@ -239,7 +248,7 @@ export default function GroupConfigModal({ config, onClose }) {
           </div>
         </div>
 
-        <div className="overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="artifex-scrollbar overflow-y-auto px-5 py-5 sm:px-6">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="flex flex-1 items-center gap-2 rounded-xl border border-edge-secondary bg-surface-tertiary px-3 py-2.5 transition-all focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20">
               <Pencil className="h-3.5 w-3.5 shrink-0 text-content-muted" />
@@ -269,12 +278,6 @@ export default function GroupConfigModal({ config, onClose }) {
                 </span>
               </button>
             )}
-          </div>
-
-          <div className="mb-5 grid gap-2 sm:grid-cols-3">
-            <HelpChip icon={Sparkles} text={t('groupConfig.help.mixed')} />
-            <HelpChip icon={Brackets} text={t('groupConfig.help.logic')} />
-            <HelpChip icon={Layers3} text={t('groupConfig.help.priority')} />
           </div>
 
           {invalidIds.size > 0 && (
@@ -399,18 +402,86 @@ export default function GroupConfigModal({ config, onClose }) {
   );
 }
 
-function HelpChip({ icon: Icon, text }) {
-  return (
-    <div className="flex items-start gap-2 rounded-xl border border-edge-primary bg-surface-tertiary/60 px-3 py-2.5">
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
-      <span className="text-[11px] leading-relaxed text-content-tertiary">{text}</span>
-    </div>
-  );
+function getGroupRanges(terms) {
+  const stack = [];
+  const ranges = [];
+  terms.forEach((term, index) => {
+    for (let count = 0; count < term.open; count += 1) {
+      stack.push({ start: index, depth: stack.length });
+    }
+    for (let count = 0; count < term.close; count += 1) {
+      const opening = stack.pop();
+      if (opening) ranges.push({ ...opening, end: index });
+    }
+  });
+  return ranges.sort((a, b) => a.depth - b.depth || a.start - b.start || b.end - a.end);
 }
 
 function PairItem({ pair, index, color, invalid, t, onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair }) {
   const dragControls = useDragControls();
   const terms = normalizePairTerms(pair);
+  const ranges = getGroupRanges(terms);
+  const [logicMode, setLogicMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState(new Set());
+
+  useEffect(() => {
+    setSelectedIndices((previous) => new Set([...previous].filter((termIndex) => termIndex < terms.length)));
+  }, [terms.length]);
+
+  const selected = [...selectedIndices].sort((a, b) => a - b);
+  const isContiguous = selected.every((termIndex, selectedIndex) => (
+    selectedIndex === 0 || termIndex === selected[selectedIndex - 1] + 1
+  ));
+  const selectionStart = selected[0];
+  const selectionEnd = selected[selected.length - 1];
+  const exactRange = isContiguous
+    ? [...ranges].reverse().find((range) => range.start === selectionStart && range.end === selectionEnd)
+    : null;
+  const canGroup = selected.length >= 2
+    && isContiguous
+    && !exactRange
+    && terms[selectionStart]?.open < 4
+    && terms[selectionEnd]?.close < 4;
+  const canUngroup = Boolean(exactRange);
+
+  const toggleSelection = (termIndex) => {
+    setSelectedIndices((previous) => {
+      const next = new Set(previous);
+      if (next.has(termIndex)) next.delete(termIndex);
+      else next.add(termIndex);
+      return next;
+    });
+  };
+
+  const selectRange = (range) => {
+    setLogicMode(true);
+    setSelectedIndices(new Set(Array.from({ length: range.end - range.start + 1 }, (_, offset) => range.start + offset)));
+  };
+
+  const toggleNotForSelection = () => {
+    if (selected.length === 0) return;
+    const shouldNegate = selected.some((termIndex) => !terms[termIndex].negated);
+    selected.forEach((termIndex) => onUpdateTerm(pair.id, termIndex, { negated: shouldNegate }));
+    setSelectedIndices(new Set());
+  };
+
+  const groupSelection = () => {
+    if (!canGroup) return;
+    onUpdateTerm(pair.id, selectionStart, { open: terms[selectionStart].open + 1 });
+    onUpdateTerm(pair.id, selectionEnd, { close: terms[selectionEnd].close + 1 });
+    setSelectedIndices(new Set());
+  };
+
+  const ungroupSelection = () => {
+    if (!canUngroup) return;
+    onUpdateTerm(pair.id, exactRange.start, { open: Math.max(0, terms[exactRange.start].open - 1) });
+    onUpdateTerm(pair.id, exactRange.end, { close: Math.max(0, terms[exactRange.end].close - 1) });
+    setSelectedIndices(new Set());
+  };
+
+  const selectionHint = selected.length === 0
+    ? t('groupConfig.logic.selectHint')
+    : (!isContiguous ? t('groupConfig.logic.contiguousHint') : t('groupConfig.logic.selectedCount', { count: selected.length }));
 
   return (
     <Reorder.Item
@@ -447,44 +518,164 @@ function PairItem({ pair, index, color, invalid, t, onUpdateTerm, onAddTerm, onR
         </button>
       </div>
 
-      <div className="space-y-2">
-        {terms.map((term, termIndex) => (
-          <ExpressionTerm
-            key={`${pair.id}_${termIndex}`}
-            term={term}
-            termIndex={termIndex}
-            pairId={pair.id}
-            canRemove={terms.length > 1}
-            t={t}
-            onUpdate={onUpdateTerm}
-            onRemove={onRemoveTerm}
-          />
-        ))}
+      {logicMode && (
+        <div className="mb-3 rounded-xl border border-accent/20 bg-surface-secondary/75 p-2.5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-auto text-[11px] text-content-muted">{selectionHint}</span>
+            <button
+              type="button"
+              onClick={toggleNotForSelection}
+              disabled={selected.length === 0}
+              className="rounded-lg border border-edge-secondary bg-surface-tertiary px-2.5 py-1.5 text-[10px] font-bold text-content-tertiary transition-colors hover:border-edge-primary hover:text-content-primary disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {selected.length > 0 && selected.every((termIndex) => terms[termIndex].negated)
+                ? t('groupConfig.logic.removeNotSelected')
+                : t('groupConfig.logic.notSelected')}
+            </button>
+            <button
+              type="button"
+              onClick={groupSelection}
+              disabled={!canGroup}
+              className="rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-1.5 text-[10px] font-semibold text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {t('groupConfig.logic.groupSelected')}
+            </button>
+            <button
+              type="button"
+              onClick={ungroupSelection}
+              disabled={!canUngroup}
+              className="rounded-lg border border-edge-secondary bg-surface-tertiary px-2.5 py-1.5 text-[10px] text-content-muted transition-colors hover:text-content-primary disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {t('groupConfig.logic.ungroupSelected')}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLogicMode(false); setSelectedIndices(new Set()); }}
+              className="rounded-lg px-2.5 py-1.5 text-[10px] font-medium text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-primary"
+            >
+              {t('groupConfig.logic.done')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {terms.map((term, termIndex) => {
+          const activeRanges = ranges.filter((range) => range.start <= termIndex && range.end >= termIndex);
+          const startingRanges = activeRanges.filter((range) => range.start === termIndex);
+          return (
+            <div
+              key={`${pair.id}_${termIndex}`}
+              className={`relative rounded-xl py-0.5 transition-colors ${selectedIndices.has(termIndex) ? 'bg-accent/10' : ''}`}
+              style={{ paddingLeft: `${Math.min(activeRanges.length, 4) * 8}px` }}
+            >
+              {activeRanges.map((range) => (
+                <span
+                  key={`${range.start}_${range.end}_${range.depth}`}
+                  className="pointer-events-none absolute w-1.5 border-l-2 border-accent/35"
+                  style={{
+                    left: `${range.depth * 7}px`,
+                    top: range.start === termIndex ? '4px' : '-4px',
+                    bottom: range.end === termIndex ? '4px' : '-4px',
+                    borderTop: range.start === termIndex ? '2px solid rgb(var(--clr-accent) / 0.35)' : undefined,
+                    borderBottom: range.end === termIndex ? '2px solid rgb(var(--clr-accent) / 0.35)' : undefined,
+                    borderTopLeftRadius: range.start === termIndex ? '5px' : undefined,
+                    borderBottomLeftRadius: range.end === termIndex ? '5px' : undefined,
+                  }}
+                />
+              ))}
+              {startingRanges.map((range) => (
+                <button
+                  type="button"
+                  key={`badge_${range.start}_${range.end}_${range.depth}`}
+                  onClick={() => selectRange(range)}
+                  className="absolute -top-1 z-10 rounded-md border border-accent/20 bg-surface-secondary px-1 font-mono text-[8px] text-accent shadow-sm transition-colors hover:bg-accent/10"
+                  style={{ left: `${range.depth * 7 + 3}px` }}
+                  title={t('groupConfig.logic.editGroup')}
+                  aria-label={t('groupConfig.logic.editGroup')}
+                >
+                  (…)
+                </button>
+              ))}
+              <ExpressionTerm
+                term={term}
+                termIndex={termIndex}
+                pairId={pair.id}
+                canRemove={terms.length > 1}
+                logicMode={logicMode}
+                selected={selectedIndices.has(termIndex)}
+                t={t}
+                onToggleSelected={toggleSelection}
+                onUpdate={onUpdateTerm}
+                onRemove={(targetPairId, targetTermIndex) => {
+                  setSelectedIndices(new Set());
+                  onRemoveTerm(targetPairId, targetTermIndex);
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
 
-      <button
-        type="button"
-        onClick={() => onAddTerm(pair.id)}
-        className="mt-2 flex items-center gap-1 text-xs text-content-muted transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-      >
-        <Plus className="h-3 w-3" />
-        {t('groupConfig.addKeyword')}
-      </button>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => onAddTerm(pair.id)}
+          className="flex items-center gap-1 text-xs text-content-muted transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+        >
+          <Plus className="h-3 w-3" />
+          {t('groupConfig.addKeyword')}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setLogicMode((previous) => !previous);
+            setSelectedIndices(new Set());
+          }}
+          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+            logicMode
+              ? 'border-accent/30 bg-accent/10 text-accent'
+              : 'border-edge-primary bg-surface-tertiary/70 text-content-muted hover:border-edge-secondary hover:text-content-primary'
+          }`}
+          aria-pressed={logicMode}
+        >
+          <span className="font-mono text-[9px]">&#123;…&#125;</span>
+          {t('groupConfig.logic.tools')}
+        </button>
+      </div>
     </Reorder.Item>
   );
 }
 
-function ExpressionTerm({ term, termIndex, pairId, canRemove, t, onUpdate, onRemove }) {
+function ExpressionTerm({
+  term, termIndex, pairId, canRemove, logicMode, selected,
+  t, onToggleSelected, onUpdate, onRemove,
+}) {
   const scopeOptions = [
-    { value: 'all', label: t('groupConfig.scope.all'), icon: Sparkles },
-    { value: 'tag', label: t('groupConfig.scope.tag'), icon: Tag },
-    { value: 'prompt', label: t('groupConfig.scope.prompt'), icon: MessageSquareText },
+    { value: 'all', label: t('groupConfig.scope.all'), description: t('groupConfig.scope.allDesc') },
+    { value: 'tag', label: t('groupConfig.scope.tag'), description: t('groupConfig.scope.tagDesc') },
+    { value: 'prompt', label: t('groupConfig.scope.prompt'), description: t('groupConfig.scope.promptDesc') },
   ];
-  const currentScope = scopeOptions.find((option) => option.value === term.scope) || scopeOptions[0];
-  const ScopeIcon = currentScope.icon;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap">
+      {logicMode && (
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => onToggleSelected(termIndex)}
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] transition-all focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+            selected
+              ? 'border-accent bg-accent text-white'
+              : 'border-edge-secondary bg-surface-secondary text-transparent hover:border-accent/50'
+          }`}
+          title={t('groupConfig.logic.selectCondition')}
+          aria-label={t('groupConfig.logic.selectCondition')}
+        >
+          ✓
+        </button>
+      )}
+
       {termIndex === 0 ? (
         <span className="w-[4.5rem] shrink-0 text-center text-[10px] font-semibold uppercase tracking-wide text-content-muted">
           {t('groupConfig.logic.when')}
@@ -504,13 +695,17 @@ function ExpressionTerm({ term, termIndex, pairId, canRemove, t, onUpdate, onRem
         </button>
       )}
 
-      <ParenStepper
-        value={term.open}
-        symbol="("
-        decreaseLabel={t('groupConfig.logic.removeOpen')}
-        increaseLabel={t('groupConfig.logic.addOpen')}
-        onChange={(value) => onUpdate(pairId, termIndex, { open: value })}
-      />
+      {term.negated && (
+        <button
+          type="button"
+          onClick={() => onUpdate(pairId, termIndex, { negated: false })}
+          className="h-7 shrink-0 rounded-md border border-content-secondary/30 bg-content-primary px-1.5 text-[9px] font-bold tracking-wide text-surface-secondary shadow-sm transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-accent/30"
+          title={t('groupConfig.logic.removeNot')}
+          aria-label={t('groupConfig.logic.removeNot')}
+        >
+          NOT
+        </button>
+      )}
 
       <div className="relative min-w-[8rem] flex-1">
         <TagPromptSuggest
@@ -519,29 +714,21 @@ function ExpressionTerm({ term, termIndex, pairId, canRemove, t, onUpdate, onRem
           onChange={(value) => onUpdate(pairId, termIndex, { value })}
           onSelect={(value, scope) => onUpdate(pairId, termIndex, { value, scope })}
           placeholder={t('groupConfig.keywordPlaceholder.mixed')}
-          inputClassName="w-full rounded-lg border border-edge-primary bg-surface-tertiary px-3 py-2 pr-24 text-sm text-content-primary placeholder-content-muted transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
+          inputClassName="w-full rounded-lg border border-edge-primary bg-surface-tertiary px-3 py-2 pr-28 text-sm text-content-primary placeholder-content-muted transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
         />
-        <label className="absolute right-1 top-1 z-10 flex h-[calc(100%-0.5rem)] items-center rounded-md border border-edge-primary bg-surface-secondary text-[10px] text-content-muted shadow-sm">
-          <ScopeIcon className="ml-2 h-3 w-3 shrink-0" />
-          <select
+        <div className="absolute right-1 top-1 z-10">
+          <SettingsSelect
             value={term.scope}
-            onChange={(event) => onUpdate(pairId, termIndex, { scope: event.target.value })}
-            className="h-full max-w-[4.75rem] cursor-pointer appearance-none bg-transparent py-0 pl-1 pr-5 text-[10px] text-content-tertiary focus:outline-none"
-            aria-label={t('groupConfig.scope.label')}
-          >
-            {scopeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-1 h-3 w-3" />
-        </label>
+            onChange={(scope) => onUpdate(pairId, termIndex, { scope })}
+            options={scopeOptions}
+            minWidth={94}
+            menuMinWidth={170}
+            compact
+            placement="top"
+            ariaLabel={t('groupConfig.scope.label')}
+          />
+        </div>
       </div>
-
-      <ParenStepper
-        value={term.close}
-        symbol=")"
-        decreaseLabel={t('groupConfig.logic.removeClose')}
-        increaseLabel={t('groupConfig.logic.addClose')}
-        onChange={(value) => onUpdate(pairId, termIndex, { close: value })}
-      />
 
       <button
         type="button"
@@ -551,36 +738,6 @@ function ExpressionTerm({ term, termIndex, pairId, canRemove, t, onUpdate, onRem
         title={t('groupConfig.removeKeyword')}
       >
         <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
-}
-
-function ParenStepper({ value, symbol, decreaseLabel, increaseLabel, onChange }) {
-  return (
-    <div className="flex h-9 shrink-0 items-center overflow-hidden rounded-lg border border-edge-primary bg-surface-tertiary">
-      <button
-        type="button"
-        onClick={() => onChange(Math.max(0, value - 1))}
-        disabled={value === 0}
-        className="h-full px-1.5 text-xs text-content-muted transition-colors hover:bg-edge-secondary hover:text-content-primary disabled:opacity-25"
-        title={decreaseLabel}
-        aria-label={decreaseLabel}
-      >
-        −
-      </button>
-      <span className={`min-w-4 text-center font-mono text-xs ${value ? 'font-bold text-accent' : 'text-content-muted'}`}>
-        {value ? symbol.repeat(value) : symbol}
-      </span>
-      <button
-        type="button"
-        onClick={() => onChange(Math.min(4, value + 1))}
-        disabled={value >= 4}
-        className="h-full px-1.5 text-xs text-content-muted transition-colors hover:bg-edge-secondary hover:text-content-primary disabled:opacity-25"
-        title={increaseLabel}
-        aria-label={increaseLabel}
-      >
-        +
       </button>
     </div>
   );

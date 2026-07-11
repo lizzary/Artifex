@@ -48,3 +48,31 @@
 html {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+/* ── Theme-aware scroll areas ─────────────────────────── */
+.artifex-scrollbar {
+  scrollbar-color: rgb(var(--clr-accent) / 0.55) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.artifex-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.artifex-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 10px;
+}
+
+.artifex-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(var(--clr-accent) / 0.38);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+.artifex-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--clr-accent) / 0.68);
+  background-clip: padding-box;
+}

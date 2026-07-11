@@ -8,6 +8,9 @@ export default function SettingsSelect({
   options,
   disabled = false,
   minWidth = 180,
+  menuMinWidth = minWidth,
+  compact = false,
+  placement = 'bottom',
   ariaLabel,
 }) {
   const [open, setOpen] = useState(false);
@@ -43,7 +46,9 @@ export default function SettingsSelect({
         disabled={disabled}
         onClick={() => !disabled && setOpen((v) => !v)}
         style={{ minWidth }}
-        className={`group flex items-center gap-2 px-3.5 py-2 rounded-lg border text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+        className={`group flex items-center rounded-lg border font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+          compact ? 'gap-1.5 px-2.5 py-1.5 text-[11px]' : 'gap-2 px-3.5 py-2 text-sm'
+        } ${
           open
             ? 'bg-surface-tertiary border-accent/50 text-content-primary shadow-sm'
             : 'bg-surface-tertiary border-edge-secondary text-content-primary hover:border-accent/40 hover:bg-edge-secondary/40'
@@ -51,7 +56,7 @@ export default function SettingsSelect({
       >
         <span className="flex-1 text-left truncate">{active ? active.label : ''}</span>
         <ChevronDown
-          className={`w-4 h-4 text-content-tertiary group-hover:text-content-secondary transition-transform duration-200 ${
+          className={`${compact ? 'h-3 w-3' : 'h-4 w-4'} text-content-tertiary group-hover:text-content-secondary transition-transform duration-200 ${
             open ? 'rotate-180 text-accent' : ''
           }`}
         />
@@ -61,12 +66,14 @@ export default function SettingsSelect({
         {open && (
           <motion.div
             role="listbox"
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            initial={{ opacity: 0, y: placement === 'top' ? 6 : -6, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            exit={{ opacity: 0, y: placement === 'top' ? 6 : -6, scale: 0.97 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{ minWidth }}
-            className="absolute right-0 top-full mt-1.5 bg-surface-secondary border border-edge-primary rounded-xl shadow-2xl z-50 overflow-hidden py-1"
+            style={{ minWidth: menuMinWidth }}
+            className={`absolute right-0 bg-surface-secondary border border-edge-primary rounded-xl shadow-2xl z-50 overflow-hidden py-1 ${
+              placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+            }`}
           >
             {options.map((opt) => {
               const selected = opt.value === value;

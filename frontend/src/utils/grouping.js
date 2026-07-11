@@ -11,6 +11,7 @@ export function normalizeTerm(term, fallbackScope = 'all', index = 0) {
       value: term,
       scope: VALID_SCOPES.has(fallbackScope) ? fallbackScope : 'all',
       operator: index === 0 ? 'and' : 'and',
+      negated: false,
       open: 0,
       close: 0,
     };
@@ -21,6 +22,7 @@ export function normalizeTerm(term, fallbackScope = 'all', index = 0) {
     value: String(value),
     scope: VALID_SCOPES.has(term?.scope) ? term.scope : (VALID_SCOPES.has(fallbackScope) ? fallbackScope : 'all'),
     operator: index === 0 ? 'and' : (term?.operator === 'or' ? 'or' : 'and'),
+    negated: Boolean(term?.negated),
     open: clampParenCount(term?.open),
     close: clampParenCount(term?.close),
   };
@@ -38,7 +40,8 @@ export function expressionLabel(pair) {
   return terms.map((term, index) => {
     const prefix = index === 0 ? '' : ` ${term.operator.toUpperCase()} `;
     const scope = term.scope === 'tag' ? 'tag:' : term.scope === 'prompt' ? 'prompt:' : '';
-    return `${prefix}${'('.repeat(term.open)}${scope}${term.value}${')'.repeat(term.close)}`;
+    const negation = term.negated ? 'NOT ' : '';
+    return `${prefix}${'('.repeat(term.open)}${negation}${scope}${term.value}${')'.repeat(term.close)}`;
   }).join('');
 }
 
@@ -76,9 +79,11 @@ function termMatches(fields, term) {
   const keyword = term.value.trim().toLowerCase();
   const tagMatch = fields.tags.has(keyword);
   const promptMatch = fields.prompt.includes(keyword);
-  if (term.scope === 'tag') return tagMatch;
-  if (term.scope === 'prompt') return promptMatch;
-  return tagMatch || promptMatch;
+  let matches;
+  if (term.scope === 'tag') matches = tagMatch;
+  else if (term.scope === 'prompt') matches = promptMatch;
+  else matches = tagMatch || promptMatch;
+  return term.negated ? !matches : matches;
 }
 
 function toPostfix(terms, values) {

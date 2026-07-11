@@ -36,7 +36,7 @@ Artifex sits between ComfyUI and the filesystem:
 - **Full-text search over tags and prompts** — SQLite FTS5 with prefix
   matching: "suns" finds "sunset", "sunshine", "sunlight".
 - **Mutually-exclusive smart grouping** — combine tags and prompt terms
-  with `AND`, `OR`, and parentheses; each image is assigned to the
+  with `AND`, `OR`, `NOT`, and parentheses; each image is assigned to the
   highest-priority matching rule and rendered inside a colored,
   collapsible container. Match priority and page order are configured
   independently.
@@ -97,8 +97,8 @@ Requirements at a glance:
 
 Artifex's signature organizing feature. Each rule can combine **tags and
 positive/negative prompt terms** in one expression. Conditions support
-`AND`, `OR`, and nested parentheses, with standard precedence:
-parentheses first, then `AND`, then `OR`.
+`AND`, `OR`, `NOT`, and nested parentheses, with standard precedence:
+parentheses and `NOT` first, then `AND`, then `OR`.
 
 Rules have an explicit **match priority**. Higher-priority groups run
 first, and an image leaves the pipeline as soon as it matches, keeping

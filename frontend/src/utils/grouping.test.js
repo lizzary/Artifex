@@ -1,0 +1,97 @@
+import {
+  groupIllustrations,
+  matchesMixedExpression,
+  validateExpression,
+} from './grouping';
+
+const illustration = (id, tags = '', positive = '', negative = '') => ({
+  id,
+  tags,
+  extended_data: {
+    'Positive Prompt': positive,
+    'Negative Prompt': negative,
+  },
+});
+
+const term = (value, options = {}) => ({
+  value,
+  scope: 'all',
+  operator: 'and',
+  negated: false,
+  open: 0,
+  close: 0,
+  ...options,
+});
+
+describe('smart grouping expressions', () => {
+  test('combines exact tags and prompt substrings in one AND rule', () => {
+    const pair = {
+      terms: [
+        term('1girl', { scope: 'tag' }),
+        term('soft light', { scope: 'prompt', operator: 'and' }),
+      ],
+    };
+
+    expect(matchesMixedExpression(illustration(1, '1girl, blue eyes', 'soft lighting'), pair)).toBe(true);
+    expect(matchesMixedExpression(illustration(2, '1girl', 'flat colors'), pair)).toBe(false);
+  });
+
+  test('negates a tag, prompt, or mixed-source keyword condition', () => {
+    const noMonochrome = { terms: [term('monochrome', { scope: 'tag', negated: true })] };
+    const noWatermark = { terms: [term('watermark', { scope: 'prompt', negated: true })] };
+
+    expect(matchesMixedExpression(illustration(1, 'portrait', 'studio light'), noMonochrome)).toBe(true);
+    expect(matchesMixedExpression(illustration(2, 'portrait, monochrome', 'studio light'), noMonochrome)).toBe(false);
+    expect(matchesMixedExpression(illustration(3, 'portrait', 'no watermark'), noWatermark)).toBe(false);
+  });
+
+  test('evaluates NOT before AND and OR', () => {
+    const pair = {
+      terms: [
+        term('cat', { scope: 'tag' }),
+        term('dog', { scope: 'tag', operator: 'or', negated: true }),
+        term('blue', { scope: 'prompt', operator: 'and' }),
+      ],
+    };
+
+    expect(matchesMixedExpression(illustration(1, 'cat, dog', 'red background'), pair)).toBe(true);
+    expect(matchesMixedExpression(illustration(2, 'portrait', 'blue background'), pair)).toBe(true);
+    expect(matchesMixedExpression(illustration(3, 'dog', 'blue background'), pair)).toBe(false);
+  });
+
+  test('evaluates parentheses before AND and OR', () => {
+    const pair = {
+      terms: [
+        term('cat', { scope: 'tag', open: 1 }),
+        term('dog', { scope: 'tag', operator: 'or', close: 1 }),
+        term('blue', { scope: 'prompt', operator: 'and' }),
+      ],
+    };
+
+    expect(matchesMixedExpression(illustration(1, 'cat', 'red background'), pair)).toBe(false);
+    expect(matchesMixedExpression(illustration(2, 'dog', 'blue background'), pair)).toBe(true);
+  });
+
+  test('rejects unbalanced parentheses instead of partially matching', () => {
+    const pair = { terms: [term('cat', { open: 1 })] };
+    expect(validateExpression(pair)).toEqual({ valid: false, reason: 'unclosedParenthesis' });
+    expect(matchesMixedExpression(illustration(1, 'cat'), pair)).toBe(false);
+  });
+
+  test('uses match priority independently from display order and stops after first match', () => {
+    const pairs = [
+      { id: 'display-first', terms: [term('cat', { scope: 'tag' })], color: 'red', borderColor: 'darkred' },
+      { id: 'priority-first', terms: [term('portrait', { scope: 'prompt' })], color: 'blue', borderColor: 'darkblue' },
+    ];
+    const result = groupIllustrations(
+      [illustration(1, 'cat', 'portrait lighting'), illustration(2, 'cat', 'landscape')],
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['priority-first', 'display-first'],
+    );
+
+    expect(result.map((group) => group.id)).toEqual(['display-first', 'priority-first']);
+    expect(result[0].items.map((item) => item.id)).toEqual([2]);
+    expect(result[1].items.map((item) => item.id)).toEqual([1]);
+  });
+});
