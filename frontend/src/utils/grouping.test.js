@@ -1,6 +1,7 @@
 import {
   groupIllustrations,
   matchesMixedExpression,
+  paginateIllustrationGroups,
   validateExpression,
 } from './grouping';
 
@@ -93,5 +94,38 @@ describe('smart grouping expressions', () => {
     expect(result.map((group) => group.id)).toEqual(['display-first', 'priority-first']);
     expect(result[0].items.map((item) => item.id)).toEqual([2]);
     expect(result[1].items.map((item) => item.id)).toEqual([1]);
+  });
+
+  test('paginates after display grouping instead of grouping an existing database page', () => {
+    const illustrations = [
+      ...Array.from({ length: 90 }, (_, index) => illustration(index + 1, 'group-a')),
+      ...Array.from({ length: 20 }, (_, index) => illustration(index + 91, 'group-b')),
+      ...Array.from({ length: 1890 }, (_, index) => illustration(index + 111, 'ungrouped')),
+    ];
+    const pairs = [
+      { id: 'a', terms: [term('group-a', { scope: 'tag' })], color: 'red', borderColor: 'darkred' },
+      { id: 'b', terms: [term('group-b', { scope: 'tag' })], color: 'blue', borderColor: 'darkblue' },
+    ];
+    const groups = groupIllustrations(
+      illustrations,
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['a', 'b'],
+    );
+
+    const first50 = paginateIllustrationGroups(groups, 1, 50);
+    expect(first50.map((group) => [group.id, group.items.length])).toEqual([['a', 50]]);
+
+    const first100 = paginateIllustrationGroups(groups, 1, 100);
+    expect(first100.map((group) => [group.id, group.items.length])).toEqual([
+      ['a', 90],
+      ['b', 10],
+    ]);
+
+    const second50 = paginateIllustrationGroups(groups, 2, 50);
+    expect(second50.map((group) => [group.id, group.items.length])).toEqual([
+      ['a', 40],
+      ['b', 10],
+    ]);
   });
 });

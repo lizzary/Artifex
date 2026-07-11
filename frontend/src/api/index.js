@@ -47,6 +47,27 @@ export function listIllustrations(groupId, offset = 0, limit = 200) {
   return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`);
 }
 
+// Smart grouping is evaluated in the browser, so pagination based on the
+// resulting group order needs the complete illustration set first. Fetch in
+// bounded batches instead of relying on one oversized request.
+export async function listAllIllustrations(groupId, batchSize = 5000) {
+  const items = [];
+  let total = 0;
+
+  do {
+    const data = await listIllustrations(groupId, items.length, batchSize);
+    const batch = Array.isArray(data.items) ? data.items : [];
+    items.push(...batch);
+    total = Number.isFinite(data.total) ? data.total : items.length;
+
+    // Avoid an infinite loop if the server reports a stale total or returns no
+    // progress for an out-of-range offset.
+    if (batch.length === 0) break;
+  } while (items.length < total);
+
+  return { items, total };
+}
+
 export function uploadIllustrations(groupId, files, skipAutoTag = false, conflictPolicy) {
   const formData = new FormData();
   files.forEach((f) => formData.append('files', f));

@@ -4,7 +4,7 @@ import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Lo
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useDownloadConfig, { resolveFilename, sanitizeFilename } from '../hooks/useDownloadConfig';
-import { listIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings, retagIllustrations } from '../api';
+import { listAllIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings, retagIllustrations } from '../api';
 import { useToast } from './Toast';
 import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
@@ -16,7 +16,7 @@ import GroupConfigModal from './GroupConfigModal';
 import ModelDownloadModal from './ModelDownloadModal';
 import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig from '../hooks/useGroupConfig';
-import { groupIllustrations } from '../utils/grouping';
+import { groupIllustrations, paginateIllustrationGroups } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
 
 // ── Main component ───────────────────────────────────────
@@ -70,8 +70,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     { value: 'all', label: t('groupOverlay.pagination.all') },
   ], [t]);
 
-  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalCount / pageSize));
-
   const SORT_OPTIONS = useMemo(() => [
     { value: '', label: t('groupOverlay.sort.default') },
     { value: 'resolution', label: t('groupOverlay.sort.resolution') },
@@ -93,17 +91,11 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const groupScope = `group_${group.id}`;
   const activeConfig = useGroupConfig('mixed', groupScope);
 
-  const fetchPage = useCallback(async (page, size) => {
-    const limit = size === 'all' ? 100000 : size;
-    const offset = size === 'all' ? 0 : (page - 1) * size;
+  const fetchIllustrations = useCallback(async () => {
     try {
-      const data = await listIllustrations(group.id, offset, limit);
+      const data = await listAllIllustrations(group.id);
       setIllustrations(data.items);
       setTotalCount(data.total);
-      // If current page is empty and not page 1, go back one page
-      if (data.items.length === 0 && page > 1 && size !== 'all') {
-        setCurrentPage(page - 1);
-      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -115,8 +107,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     setLoading(true);
     setSelectedIds(new Set());
     setLastClickedId(null);
-    fetchPage(currentPage, pageSize);
-  }, [currentPage, pageSize, fetchPage]);
+    setCurrentPage(1);
+    fetchIllustrations();
+  }, [fetchIllustrations]);
 
   // Fetch settings to know whether auto-tag is enabled and how to handle filename conflicts
   useEffect(() => {
@@ -194,19 +187,37 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     );
   }, [groupBy, filteredIllustrations, activeConfig]);
 
+  const paginationTotal = filteredIllustrations.length;
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(paginationTotal / pageSize));
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const paginatedGroupedIllustrations = useMemo(() => {
+    if (!groupedIllustrations) return null;
+    return paginateIllustrationGroups(groupedIllustrations, currentPage, pageSize);
+  }, [groupedIllustrations, currentPage, pageSize]);
+
+  const paginatedIllustrations = useMemo(() => {
+    if (groupedIllustrations || pageSize === 'all') return filteredIllustrations;
+    const start = (currentPage - 1) * pageSize;
+    return filteredIllustrations.slice(start, start + pageSize);
+  }, [groupedIllustrations, filteredIllustrations, currentPage, pageSize]);
+
   // Flat list matching visual order (for index lookups in Shift+Click / Lightbox)
   const displayedIllustrations = useMemo(() => {
-    if (groupedIllustrations) {
+    if (paginatedGroupedIllustrations) {
       const flat = [];
-      for (const g of groupedIllustrations) {
+      for (const g of paginatedGroupedIllustrations) {
         if (!collapsedGroups.has(g.id)) {
           flat.push(...g.items);
         }
       }
       return flat;
     }
-    return filteredIllustrations;
-  }, [groupedIllustrations, collapsedGroups, filteredIllustrations]);
+    return paginatedIllustrations;
+  }, [paginatedGroupedIllustrations, collapsedGroups, paginatedIllustrations]);
 
   const toggleGroupCollapse = useCallback((groupId) => {
     setCollapsedGroups((prev) => {
@@ -253,7 +264,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
     const touched = summary.added.length + summary.overwritten.length;
     if (touched > 0) {
-      await fetchPage(currentPage, pageSize);
+      await fetchIllustrations();
       if (onGroupUpdated) onGroupUpdated();
     }
 
@@ -264,7 +275,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     } else if (summary.added.length) {
       addToast(t('groupOverlay.toast.uploadAdded', { n: summary.added.length }), 'success');
     }
-  }, [group.id, currentPage, pageSize, fetchPage, onGroupUpdated, t, conflictPolicy, addToast]);
+  }, [group.id, fetchIllustrations, onGroupUpdated, t, conflictPolicy, addToast]);
 
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -348,7 +359,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       setDeleteTarget(null);
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(deleteTarget.id); return next; });
       addToast(t('groupOverlay.toast.deleted'), 'success');
-      await fetchPage(currentPage, pageSize);
+      await fetchIllustrations();
       if (onGroupUpdated) onGroupUpdated();
     } catch (err) {
       addToast(err.message || t('groupOverlay.toast.deleteFailed'), 'error');
@@ -374,7 +385,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     } else {
       addToast(t('groupOverlay.toast.batchPartial', { succeeded: ids.length - failed, failed }), 'error');
     }
-    await fetchPage(currentPage, pageSize);
+    await fetchIllustrations();
     if (onGroupUpdated) onGroupUpdated();
   };
 
@@ -483,7 +494,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       await deleteIllustration(ill.id);
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(ill.id); return next; });
       addToast(t('groupOverlay.toast.deleted'), 'success');
-      await fetchPage(currentPage, pageSize);
+      await fetchIllustrations();
       if (onGroupUpdated) onGroupUpdated();
     } catch (err) {
       addToast(err.message || t('groupOverlay.toast.deleteFailed'), 'error');
@@ -696,14 +707,14 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
           )}
 
           {/* Pagination — top */}
-          {!loading && totalCount > 0 && (
+          {!loading && paginationTotal > 0 && (
             <div className="flex items-center justify-between mb-4 px-1">
               <div className="flex items-center gap-2 text-sm text-content-secondary">
                 <span>{t('groupOverlay.pagination.page')}</span>
                 <span className="font-medium text-content-primary">{currentPage}</span>
                 <span>{t('groupOverlay.pagination.of')}</span>
                 <span className="font-medium text-content-primary">{totalPages}</span>
-                <span className="text-content-muted ml-1">({t('groupOverlay.pagination.total', { total: totalCount })})</span>
+                <span className="text-content-muted ml-1">({t('groupOverlay.pagination.total', { total: paginationTotal })})</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1">
@@ -752,10 +763,10 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
               </svg>
               <p className="text-sm">{t('groupOverlay.empty')}</p>
             </div>
-          ) : groupedIllustrations ? (
+          ) : paginatedGroupedIllustrations ? (
             /* Grouped rendering */
             <div>
-              {groupedIllustrations.map((group) => (
+              {paginatedGroupedIllustrations.map((group) => (
                 <ColorGroup
                   key={group.id}
                   group={group}
@@ -773,7 +784,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             /* Flat grid (no grouping) */
             <div className={`grid ${cardSizeGrid} gap-4`}>
               <AnimatePresence mode="popLayout">
-                {filteredIllustrations.map((ill) => (
+                {paginatedIllustrations.map((ill) => (
                   <IllustrationCard {...cardProps(ill)} />
                 ))}
               </AnimatePresence>

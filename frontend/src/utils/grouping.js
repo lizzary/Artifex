@@ -189,6 +189,41 @@ export function groupIllustrations(illustrations, pairs, otherColor, matchOrder 
   return result;
 }
 
+// Slice the flattened visual group order, then rebuild only the group
+// containers that intersect the requested page. This keeps page boundaries
+// aligned with display order (group A, then group B, then Other) without
+// losing the group metadata used by the renderer.
+export function paginateIllustrationGroups(groups, page, pageSize) {
+  if (pageSize === 'all') return groups;
+
+  const size = Number(pageSize);
+  if (!Number.isFinite(size) || size <= 0) return groups;
+
+  const pageNumber = Math.max(1, Number(page) || 1);
+  const pageStart = (pageNumber - 1) * size;
+  const pageEnd = pageStart + size;
+  let groupStart = 0;
+  const result = [];
+
+  for (const group of groups) {
+    const groupEnd = groupStart + group.items.length;
+    const sliceStart = Math.max(0, pageStart - groupStart);
+    const sliceEnd = Math.min(group.items.length, pageEnd - groupStart);
+
+    if (sliceStart < sliceEnd) {
+      result.push({
+        ...group,
+        items: group.items.slice(sliceStart, sliceEnd),
+      });
+    }
+
+    groupStart = groupEnd;
+    if (groupStart >= pageEnd) break;
+  }
+
+  return result;
+}
+
 export const GROUP_BY_OPTIONS = [
   { value: 'none', label: 'No Grouping' },
   { value: 'mixed', label: 'Smart Groups' },

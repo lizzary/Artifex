@@ -56,7 +56,7 @@ func (s *Server) ListIllustrations(w http.ResponseWriter, r *http.Request) {
 		SELECT i.*, ? AS group_name
 		FROM illustrations i
 		WHERE i.group_id = ?
-		ORDER BY i.created_at DESC
+		ORDER BY i.created_at DESC, i.id DESC
 		LIMIT ? OFFSET ?
 	`, groupName, groupID, limit, offset)
 	if err != nil {
