@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"artifex-backend/internal/settings"
@@ -116,7 +115,7 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	if shouldReload {
 		if err := tagger.LoadTagger(s.ModelsDir()); err != nil {
-			fmt.Println("Tagger reload after settings change failed:", err)
+			s.logger().Warn("tagger", "reload after settings change failed: %v", err)
 		}
 	}
 

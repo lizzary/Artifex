@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"artifex-backend/internal/applog"
+
 	ort "github.com/yalue/onnxruntime_go"
 )
 
@@ -147,7 +149,7 @@ func LoadTagger(modelsDir string) error {
 	opts := ort.SessionOptions{}
 	if gpu {
 		if err := opts.AppendExecutionProvider("CUDAExecutionProvider", nil); err != nil {
-			fmt.Println("  GPU (CUDA) not available, falling back to CPU:", err)
+			applog.Warn("tagger", "GPU (CUDA) unavailable; falling back to CPU: %v", err)
 		}
 	}
 
@@ -165,7 +167,7 @@ func LoadTagger(modelsDir string) error {
 	taggerGeneralIdx = generalIdx
 	taggerCharIdx = charIdx
 
-	fmt.Printf("Tagger ready (%d tags).\n", len(tagNames))
+	applog.Info("tagger", "ready (%d tags)", len(tagNames))
 	return nil
 }
 
@@ -190,7 +192,7 @@ func ExtractTags(img image.Image) string {
 	// Preprocess: RGBA → RGB, resize, normalize
 	inputTensor, err := preprocessImage(img)
 	if err != nil {
-		fmt.Println("Tag extraction failed during preprocessing:", err)
+		applog.Error("tagger", "tag extraction failed during preprocessing: %v", err)
 		return ""
 	}
 
@@ -198,7 +200,7 @@ func ExtractTags(img image.Image) string {
 	outputs := []ort.Value{nil} // nil = auto-allocate by ONNX Runtime
 	err = taggerSession.Run([]ort.Value{inputTensor}, outputs)
 	if err != nil {
-		fmt.Println("Tag extraction failed during inference:", err)
+		applog.Error("tagger", "tag extraction failed during inference: %v", err)
 		return ""
 	}
 	defer outputs[0].Destroy()
@@ -206,7 +208,7 @@ func ExtractTags(img image.Image) string {
 	// Get output data
 	outputTensor, ok := outputs[0].(*ort.Tensor[float32])
 	if !ok {
-		fmt.Println("Tag extraction failed: unexpected output type")
+		applog.Error("tagger", "tag extraction failed: unexpected output type")
 		return ""
 	}
 	outputData := outputTensor.GetData()

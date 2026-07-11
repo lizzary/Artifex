@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +27,7 @@ func (s *Server) ModelDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Reload tagger so the newly downloaded model takes effect immediately
 	if err := tagger.LoadTagger(s.ModelsDir()); err != nil {
-		fmt.Println("Tagger reload after download failed:", err)
+		s.logger().Warn("tagger", "reload after download failed: %v", err)
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
@@ -144,7 +143,7 @@ func (s *Server) DeleteModel(w http.ResponseWriter, r *http.Request) {
 	if tagger.GetActiveModel() == modelName {
 		tagger.SetActiveModel("")
 		if err := tagger.LoadTagger(s.ModelsDir()); err != nil {
-			fmt.Println("Tagger reload after model deletion failed:", err)
+			s.logger().Warn("tagger", "reload after model deletion failed: %v", err)
 		}
 	}
 

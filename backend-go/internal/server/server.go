@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
+	"artifex-backend/internal/applog"
 	"artifex-backend/internal/models"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +22,7 @@ type ServerConfig struct {
 	ModelsDir    string
 	SettingsPath string
 	FrontendDir  string
+	Log          *applog.Hub
 }
 
 type Server struct {
@@ -39,9 +42,9 @@ func NewServer(cfg ServerConfig) *Server {
 	r := chi.NewRouter()
 
 	// Middleware
-	r.Use(chimw.Logger)
-	r.Use(chimw.Recoverer)
 	r.Use(chimw.RequestID)
+	r.Use(s.requestLogger)
+	r.Use(chimw.Recoverer)
 	r.Use(chimw.StripSlashes)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"},
@@ -103,6 +106,38 @@ func (s *Server) UploadsDir() string   { return s.Config.UploadsDir }
 func (s *Server) ModelsDir() string    { return s.Config.ModelsDir }
 func (s *Server) SettingsPath() string { return s.Config.SettingsPath }
 func (s *Server) FrontendDir() string  { return s.Config.FrontendDir }
+
+func (s *Server) logger() *applog.Hub {
+	if s.Config.Log != nil {
+		return s.Config.Log
+	}
+	return applog.Default()
+}
+
+func (s *Server) requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+
+		level := applog.LevelInfo
+		if ww.Status() >= http.StatusInternalServerError {
+			level = applog.LevelError
+		} else if ww.Status() >= http.StatusBadRequest {
+			level = applog.LevelWarn
+		}
+		s.logger().Log(
+			level,
+			"http",
+			"%s %s  status=%d bytes=%d duration=%s",
+			r.Method,
+			r.URL.RequestURI(),
+			ww.Status(),
+			ww.BytesWritten(),
+			time.Since(started).Round(time.Millisecond),
+		)
+	})
+}
 
 func (s *Server) registerStaticRoutes(r chi.Router) {
 	frontendDir := s.FrontendDir()

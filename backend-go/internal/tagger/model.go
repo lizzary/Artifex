@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"artifex-backend/internal/applog"
 	"artifex-backend/internal/models"
 )
 
@@ -81,20 +82,20 @@ func DownloadModel(modelsDir string) error {
 	defaultDir := filepath.Join(modelsDir, "default")
 	os.MkdirAll(defaultDir, 0755)
 
-	fmt.Println("Downloading default model from", DefaultModelRepo, "...")
+	applog.Info("model", "downloading default model from %s", DefaultModelRepo)
 	for _, filename := range defaultModelFiles {
 		dest := filepath.Join(defaultDir, filename)
 		if _, err := os.Stat(dest); err == nil {
-			fmt.Println("  ", filename, "— already cached")
+			applog.Info("model", "%s already cached", filename)
 			continue
 		}
-		fmt.Println("  ", filename, "— downloading...")
+		applog.Info("model", "downloading %s", filename)
 		url := fmt.Sprintf(hfBaseURL, DefaultModelRepo, filename)
 		if err := downloadFile(url, dest); err != nil {
 			return fmt.Errorf("failed to download %s: %w", filename, err)
 		}
 	}
-	fmt.Println("Default model download complete.")
+	applog.Info("model", "default model download complete")
 	return nil
 }
 
