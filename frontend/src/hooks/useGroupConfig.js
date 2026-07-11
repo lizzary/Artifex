@@ -78,6 +78,7 @@ function assignColors(pairs, fallbackScope = 'all') {
     return {
       ...rest,
       id: pair?.id || genPairId(),
+      customName: typeof pair?.customName === 'string' ? pair.customName : '',
       terms: normalizePairTerms(pair, fallbackScope),
       color: pair?.color || GROUP_COLORS[index % GROUP_COLORS.length].bg,
       borderColor: pair?.borderColor || GROUP_COLORS[index % GROUP_COLORS.length].border,

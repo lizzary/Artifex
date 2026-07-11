@@ -6,7 +6,7 @@ import {
 import TagPromptSuggest from './TagPromptSuggest';
 import SettingsSelect from './SettingsSelect';
 import { useLocale } from '../contexts/LocaleContext';
-import { expressionLabel, normalizePairTerms, validateExpression } from '../utils/grouping';
+import { groupDisplayName, normalizePairTerms, validateExpression } from '../utils/grouping';
 import { groupColorsFromHex, toHexColor } from '../utils/groupColors';
 
 function normalizeOrder(order, pairs) {
@@ -29,7 +29,8 @@ function cleanPairs(pairs) {
       .filter((term) => term.value);
     if (terms.length === 0) return [];
     terms[0] = { ...terms[0], operator: 'and' };
-    return [{ ...pair, terms }];
+    const customName = typeof pair.customName === 'string' ? pair.customName.trim() : '';
+    return [{ ...pair, customName, terms }];
   });
 }
 
@@ -139,6 +140,7 @@ export default function GroupConfigModal({ config, onClose }) {
     const color = palette[editingPairs.length % palette.length];
     const pair = {
       id,
+      customName: '',
       terms: [{ value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0 }],
       color: color.bg,
       borderColor: color.border,
@@ -160,6 +162,12 @@ export default function GroupConfigModal({ config, onClose }) {
   const updatePairColor = (pairId, nextColor) => {
     setEditingPairs((previous) => previous.map((pair) => (
       pair.id === pairId ? { ...pair, ...nextColor } : pair
+    )));
+  };
+
+  const updatePairName = (pairId, customName) => {
+    setEditingPairs((previous) => previous.map((pair) => (
+      pair.id === pairId ? { ...pair, customName } : pair
     )));
   };
 
@@ -330,6 +338,7 @@ export default function GroupConfigModal({ config, onClose }) {
                         onRemoveTerm={removeTerm}
                         onRemovePair={removePair}
                         onUpdateColor={updatePairColor}
+                        onUpdateName={updatePairName}
                       />
                     );
                   })}
@@ -429,7 +438,7 @@ function getGroupRanges(terms) {
 
 function PairItem({
   pair, index, color, defaultColor, palette, invalid, t,
-  onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair, onUpdateColor,
+  onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair, onUpdateColor, onUpdateName,
 }) {
   const dragControls = useDragControls();
   const terms = normalizePairTerms(pair);
@@ -505,7 +514,7 @@ function PairItem({
       style={{ backgroundColor: color.bg, borderColor: invalid ? 'rgb(var(--clr-danger))' : color.border }}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             type="button"
             onPointerDown={(event) => { event.preventDefault(); dragControls.start(event); }}
@@ -522,10 +531,22 @@ function PairItem({
             t={t}
             onChange={(nextColor) => onUpdateColor(pair.id, nextColor)}
           />
-          <span className="truncate text-sm font-semibold text-content-secondary">
-            {t('groupConfig.groupHeading', { n: index + 1 })}
-          </span>
-          <span className="hidden text-[10px] text-content-muted sm:inline">{t('groupConfig.displayOrder.badge')}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-xs font-semibold text-content-secondary">
+                {t('groupConfig.groupHeading', { n: index + 1 })}
+              </span>
+              <span className="hidden text-[10px] text-content-muted sm:inline">{t('groupConfig.displayOrder.badge')}</span>
+            </div>
+            <input
+              type="text"
+              value={pair.customName || ''}
+              onChange={(event) => onUpdateName(pair.id, event.target.value)}
+              placeholder={t('groupConfig.name.placeholder')}
+              aria-label={t('groupConfig.name.label', { n: index + 1 })}
+              className="mt-0.5 w-full border-b border-transparent bg-transparent py-0.5 text-sm font-medium text-content-primary placeholder-content-muted transition-colors hover:border-edge-secondary focus:border-accent/50 focus:outline-none"
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -872,7 +893,7 @@ function ExpressionTerm({
 }
 
 function PriorityItem({ pair, priority, displayIndex, t }) {
-  const label = expressionLabel(pair) || t('groupConfig.priority.untitled');
+  const label = groupDisplayName(pair) || t('groupConfig.priority.untitled');
   return (
     <Reorder.Item
       value={pair}

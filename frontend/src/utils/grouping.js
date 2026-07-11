@@ -45,6 +45,11 @@ export function expressionLabel(pair) {
   }).join('');
 }
 
+export function groupDisplayName(pair) {
+  const customName = typeof pair?.customName === 'string' ? pair.customName.trim() : '';
+  return customName || expressionLabel(pair);
+}
+
 export function validateExpression(pair) {
   const terms = normalizePairTerms(pair);
   if (terms.length === 0) return { valid: false, reason: 'empty' };
@@ -154,7 +159,7 @@ export function matchesPromptPair(ill, keywords) {
 export function groupIllustrations(illustrations, pairs, otherColor, matchOrder = []) {
   const displayGroups = pairs.map((pair) => ({
     ...pair,
-    name: expressionLabel(pair),
+    name: groupDisplayName(pair),
     items: [],
   }));
   const groupById = new Map(displayGroups.map((group) => [group.id, group]));
