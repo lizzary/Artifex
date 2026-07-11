@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
 import {
-  GripVertical, Layers3, Pencil, Plus, Trash2, X,
+  Check, GripVertical, Layers3, Palette, Pencil, Plus, RotateCcw, Trash2, X,
 } from 'lucide-react';
 import TagPromptSuggest from './TagPromptSuggest';
 import SettingsSelect from './SettingsSelect';
 import { useLocale } from '../contexts/LocaleContext';
 import { expressionLabel, normalizePairTerms, validateExpression } from '../utils/grouping';
+import { groupColorsFromHex, toHexColor } from '../utils/groupColors';
 
 function normalizeOrder(order, pairs) {
   const ids = new Set(pairs.map((pair) => pair.id));
@@ -154,6 +155,12 @@ export default function GroupConfigModal({ config, onClose }) {
       next.delete(pairId);
       return next;
     });
+  };
+
+  const updatePairColor = (pairId, nextColor) => {
+    setEditingPairs((previous) => previous.map((pair) => (
+      pair.id === pairId ? { ...pair, ...nextColor } : pair
+    )));
   };
 
   const handleDeleteSet = () => {
@@ -314,12 +321,15 @@ export default function GroupConfigModal({ config, onClose }) {
                         pair={pair}
                         index={index}
                         color={{ bg: pair.color || fallback.bg, border: pair.borderColor || fallback.border }}
+                        defaultColor={fallback}
+                        palette={palette}
                         invalid={invalidIds.has(pair.id)}
                         t={t}
                         onUpdateTerm={updateTerm}
                         onAddTerm={addTerm}
                         onRemoveTerm={removeTerm}
                         onRemovePair={removePair}
+                        onUpdateColor={updatePairColor}
                       />
                     );
                   })}
@@ -417,7 +427,10 @@ function getGroupRanges(terms) {
   return ranges.sort((a, b) => a.depth - b.depth || a.start - b.start || b.end - a.end);
 }
 
-function PairItem({ pair, index, color, invalid, t, onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair }) {
+function PairItem({
+  pair, index, color, defaultColor, palette, invalid, t,
+  onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair, onUpdateColor,
+}) {
   const dragControls = useDragControls();
   const terms = normalizePairTerms(pair);
   const ranges = getGroupRanges(terms);
@@ -502,7 +515,13 @@ function PairItem({ pair, index, color, invalid, t, onUpdateTerm, onAddTerm, onR
           >
             <GripVertical className="h-4 w-4" />
           </button>
-          <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: color.border }} />
+          <GroupColorPicker
+            color={color}
+            defaultColor={defaultColor}
+            palette={palette}
+            t={t}
+            onChange={(nextColor) => onUpdateColor(pair.id, nextColor)}
+          />
           <span className="truncate text-sm font-semibold text-content-secondary">
             {t('groupConfig.groupHeading', { n: index + 1 })}
           </span>
@@ -644,6 +663,115 @@ function PairItem({ pair, index, color, invalid, t, onUpdateTerm, onAddTerm, onR
         </button>
       </div>
     </Reorder.Item>
+  );
+}
+
+function GroupColorPicker({ color, defaultColor, palette, t, onChange }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const fallbackHex = toHexColor(defaultColor.border);
+  const currentHex = toHexColor(color.border, fallbackHex);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsidePointer = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((previous) => !previous)}
+        className="group/color relative flex h-7 w-7 items-center justify-center rounded-lg border border-edge-secondary bg-surface-tertiary shadow-sm transition-all hover:-translate-y-0.5 hover:border-edge-primary hover:shadow-md focus:outline-none focus:ring-2 focus:ring-accent/35"
+        title={t('groupConfig.color.edit')}
+        aria-label={t('groupConfig.color.edit')}
+        aria-expanded={open}
+      >
+        <span
+          className="h-3.5 w-3.5 rounded-full ring-2 ring-white/60 transition-transform group-hover/color:scale-110"
+          style={{ backgroundColor: currentHex }}
+        />
+        <Palette className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-surface-secondary p-0.5 text-content-muted shadow-sm" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute left-0 top-9 z-40 w-64 rounded-2xl border border-edge-primary bg-surface-secondary p-3.5 shadow-2xl shadow-overlay/20"
+          role="dialog"
+          aria-label={t('groupConfig.color.title')}
+        >
+          <div className="mb-3">
+            <p className="text-xs font-semibold text-content-primary">{t('groupConfig.color.title')}</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-content-muted">{t('groupConfig.color.desc')}</p>
+          </div>
+
+          <div className="grid grid-cols-5 gap-2" aria-label={t('groupConfig.color.palette')}>
+            {palette.map((preset, presetIndex) => {
+              const presetHex = toHexColor(preset.border);
+              const selected = presetHex === currentHex;
+              return (
+                <button
+                  type="button"
+                  key={`${presetHex}_${presetIndex}`}
+                  onClick={() => {
+                    onChange(groupColorsFromHex(presetHex));
+                    setOpen(false);
+                  }}
+                  className={`flex h-8 items-center justify-center rounded-lg border transition-all hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent/35 ${
+                    selected ? 'border-content-primary shadow-md' : 'border-edge-secondary hover:border-edge-primary'
+                  }`}
+                  style={{ backgroundColor: presetHex }}
+                  aria-label={t('groupConfig.color.preset', { n: presetIndex + 1 })}
+                  aria-pressed={selected}
+                >
+                  {selected && <Check className="h-3.5 w-3.5 text-white drop-shadow" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 border-t border-edge-primary pt-3">
+            <label className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl border border-edge-secondary bg-surface-tertiary px-2.5 py-2 transition-colors hover:border-edge-primary">
+              <span className="h-5 w-5 shrink-0 rounded-md border border-white/50 shadow-inner" style={{ backgroundColor: currentHex }} />
+              <span className="min-w-0">
+                <span className="block text-[10px] font-medium text-content-tertiary">{t('groupConfig.color.custom')}</span>
+                <span className="block font-mono text-[9px] uppercase text-content-muted">{currentHex}</span>
+              </span>
+              <input
+                type="color"
+                value={currentHex}
+                onChange={(event) => onChange(groupColorsFromHex(event.target.value))}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                aria-label={t('groupConfig.color.custom')}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ color: defaultColor.bg, borderColor: defaultColor.border });
+                setOpen(false);
+              }}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-edge-secondary bg-surface-tertiary text-content-muted transition-colors hover:border-edge-primary hover:text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/35"
+              title={t('groupConfig.color.reset')}
+              aria-label={t('groupConfig.color.reset')}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Trash2, Info, Play, Pause, ChevronDown, Timer } from 'lucide-react';
+import { Star, Trash2, Info, Play, Pause, ChevronDown, Timer, Download, Loader2 } from 'lucide-react';
 import { getIllustrationMetadata, updateIllustration } from '../api';
 import TagPromptSuggest from './TagPromptSuggest';
 import { useLocale } from '../contexts/LocaleContext';
+import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
+import { useToast } from './Toast';
 
 const SLIDESHOW_INTERVAL_KEY = 'gallery_slideshow_interval';
 const SLIDESHOW_INTERVAL_MIN = 1;
 const SLIDESHOW_INTERVAL_MAX = 60;
 const SLIDESHOW_INTERVAL_DEFAULT = 3;
 const SLIDESHOW_PRESETS = [2, 3, 5, 10];
+const FILE_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
 
 function clampInterval(n) {
   if (!Number.isFinite(n)) return SLIDESHOW_INTERVAL_DEFAULT;
@@ -18,6 +21,8 @@ function clampInterval(n) {
 
 export default function Lightbox({ illustrations, initialIndex, onClose, onDelete, onSetCover, onUpdate }) {
   const { t } = useLocale();
+  const { format } = useDownloadConfig();
+  const { addToast } = useToast();
 
   const META_KEYS = useMemo(() => [
     { key: 'Model', label: t('lightbox.meta.model') },
@@ -47,6 +52,7 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
   const [draftTags, setDraftTags] = useState([]);
   const [savingTags, setSavingTags] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   // ── Slideshow ───────────────────────────────────────────
   const [slideshowOn, setSlideshowOn] = useState(false);
@@ -168,6 +174,31 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
     return () => document.removeEventListener('mousedown', handler);
   }, [slideshowSettingsOpen]);
 
+  const handleDownload = useCallback(async () => {
+    if (!currentIllustration || downloading) return;
+    setDownloading(true);
+    try {
+      const response = await fetch(`${FILE_BASE_URL}${currentIllustration.file_url}`);
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const filename = resolveFilename(format, currentIllustration);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      addToast(t('lightbox.toast.downloadStarted', { filename }), 'success');
+    } catch {
+      addToast(t('lightbox.toast.downloadFailed'), 'error');
+    } finally {
+      setDownloading(false);
+    }
+  }, [currentIllustration, downloading, format, addToast, t]);
+
   if (!currentIllustration) return null;
 
   const allTags = currentIllustration.tags
@@ -223,9 +254,9 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -20 }}
-          className="flex items-center justify-between px-6 py-4 shrink-0"
+          className="flex flex-wrap items-center justify-between gap-3 px-3 sm:px-6 py-4 shrink-0"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-gray-200 transition-colors"
@@ -255,6 +286,20 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
                 {t('lightbox.setCover')}
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="px-3.5 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/15 disabled:bg-white/5 disabled:text-gray-500 text-gray-200 border border-white/10 hover:border-accent/40 shadow-lg transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:cursor-wait inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              title={t('lightbox.downloadHint')}
+              aria-label={t('lightbox.downloadHint')}
+              aria-busy={downloading}
+            >
+              {downloading
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                : <Download className="w-3.5 h-3.5 text-accent" />}
+              {downloading ? t('lightbox.downloading') : t('lightbox.download')}
+            </button>
             {onDelete && (
               <button
                 onClick={() => onDelete(currentIllustration)}

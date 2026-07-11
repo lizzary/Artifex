@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
-import useDownloadConfig, { resolveFilename, sanitizeFilename } from '../hooks/useDownloadConfig';
+import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
 import { listAllIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings, retagIllustrations } from '../api';
 import { useToast } from './Toast';
 import ConfirmModal from './ConfirmModal';
@@ -186,6 +186,29 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       activeConfig.matchOrder,
     );
   }, [groupBy, filteredIllustrations, activeConfig]);
+
+  const groupedIllustrationIds = useMemo(
+    () => groupedIllustrations?.map((item) => item.id) || [],
+    [groupedIllustrations],
+  );
+  const collapsedGroupCount = groupedIllustrationIds.reduce(
+    (count, id) => count + (collapsedGroups.has(id) ? 1 : 0),
+    0,
+  );
+  const allGroupsCollapsed = groupedIllustrationIds.length > 0
+    && collapsedGroupCount === groupedIllustrationIds.length;
+
+  const toggleAllGroups = useCallback(() => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (allGroupsCollapsed) {
+        groupedIllustrationIds.forEach((id) => next.delete(id));
+      } else {
+        groupedIllustrationIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }, [allGroupsCollapsed, groupedIllustrationIds]);
 
   const paginationTotal = filteredIllustrations.length;
   const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(paginationTotal / pageSize));
@@ -708,7 +731,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
           {/* Pagination — top */}
           {!loading && paginationTotal > 0 && (
-            <div className="flex items-center justify-between mb-4 px-1">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 px-1">
               <div className="flex items-center gap-2 text-sm text-content-secondary">
                 <span>{t('groupOverlay.pagination.page')}</span>
                 <span className="font-medium text-content-primary">{currentPage}</span>
@@ -716,7 +739,45 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 <span className="font-medium text-content-primary">{totalPages}</span>
                 <span className="text-content-muted ml-1">({t('groupOverlay.pagination.total', { total: paginationTotal })})</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {groupedIllustrationIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAllGroups}
+                    className={`group inline-flex items-center gap-2 whitespace-nowrap rounded-xl border px-3 py-1.5 text-xs font-medium shadow-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                      allGroupsCollapsed
+                        ? 'border-accent/35 bg-accent/10 text-accent hover:bg-accent/15'
+                        : 'border-edge-secondary bg-surface-tertiary text-content-secondary hover:border-accent/30 hover:text-content-primary'
+                    }`}
+                    title={allGroupsCollapsed
+                      ? t('groupOverlay.group.expandAllHint')
+                      : t('groupOverlay.group.collapseAllHint')}
+                    aria-label={allGroupsCollapsed
+                      ? t('groupOverlay.group.expandAllHint')
+                      : t('groupOverlay.group.collapseAllHint')}
+                    aria-pressed={allGroupsCollapsed}
+                  >
+                    <span className={`grid h-5 w-5 place-items-center rounded-md transition-colors ${
+                      allGroupsCollapsed ? 'bg-accent/15' : 'bg-surface-primary'
+                    }`}>
+                      <Layers className="h-3.5 w-3.5" />
+                    </span>
+                    <span>
+                      {allGroupsCollapsed
+                        ? t('groupOverlay.group.expandAll')
+                        : t('groupOverlay.group.collapseAll')}
+                    </span>
+                    <span
+                      className="rounded-full bg-surface-primary/80 px-1.5 py-0.5 text-[10px] tabular-nums text-content-muted"
+                      aria-hidden="true"
+                    >
+                      {collapsedGroupCount}/{groupedIllustrationIds.length}
+                    </span>
+                  </button>
+                )}
+                {groupedIllustrationIds.length > 0 && (
+                  <span className="mx-0.5 h-5 w-px bg-edge-primary" aria-hidden="true" />
+                )}
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

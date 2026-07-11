@@ -106,8 +106,9 @@ groups mutually exclusive; anything unmatched falls into "Other".
 Match priority is independent from the drag order used to arrange groups
 on the page.
 
-Each group gets a distinct color and is rendered as a collapsible
-container, visually separating themes, characters, or styles at a glance.
+Each group gets a distinct default color and is rendered as a collapsible
+container. You can also choose a palette color or an exact custom color for
+each group, visually separating themes, characters, or styles at a glance.
 
 - **Mixed-source autocomplete** — every condition suggests both existing
   tags and prompt terms, with a source badge

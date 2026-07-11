@@ -12,6 +12,7 @@ jest.mock('framer-motion', () => {
 
   return {
     motion: { div: MotionDiv },
+    AnimatePresence: ({ children }) => children,
     Reorder: { Group: ReorderGroup, Item: ReorderItem },
     useDragControls: () => ({ start: jest.fn() }),
   };
@@ -57,7 +58,7 @@ describe('GroupConfigModal progressive logic editor', () => {
     expect(screen.queryByRole('button', { name: 'Select condition' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit this logic group' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Logic' }));
+    fireEvent.click(screen.getByRole('button', { name: /Logic$/ }));
     const selectors = screen.getAllByRole('button', { name: 'Select condition' });
     expect(selectors).toHaveLength(3);
 
@@ -73,5 +74,26 @@ describe('GroupConfigModal progressive logic editor', () => {
     expect(screen.queryByRole('button', { name: 'Select condition' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit this logic group' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove NOT from this condition' })).toHaveTextContent('NOT');
+  });
+
+  test('saves an independently selected custom color for the group', () => {
+    const config = createConfig();
+    render(
+      <LocaleProvider>
+        <GroupConfigModal config={config} onClose={jest.fn()} />
+      </LocaleProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change group color' }));
+    expect(screen.getByRole('dialog', { name: 'Group color' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Custom color'), { target: { value: '#123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(config.setPairs).toHaveBeenCalledTimes(1);
+    const [savedPairs] = config.setPairs.mock.calls[0];
+    expect(savedPairs[0]).toMatchObject({
+      color: 'rgba(18, 52, 86, 0.08)',
+      borderColor: 'rgba(18, 52, 86, 0.35)',
+    });
   });
 });
