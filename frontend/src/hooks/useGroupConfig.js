@@ -56,12 +56,6 @@ function persistEntry(scope, type, value) {
   return writeChain;
 }
 
-function legacySetsKey(scope, type) { return `gallery_group_${scope}_${type}_sets`; }
-function legacyActiveKey(scope, type) { return `gallery_group_${scope}_${type}_active`; }
-function oldSetsKey(type) { return `gallery_group_${type}_sets`; }
-function oldActiveKey(type) { return `gallery_group_${type}_active`; }
-function oldConfigKey(type) { return `gallery_group_${type}_config`; }
-
 let idCounter = 1;
 function genSetId() { return `set_${Date.now()}_${idCounter++}`; }
 function genPairId() { return `pair_${Date.now()}_${idCounter++}`; }
@@ -102,104 +96,6 @@ function normalizeEntry(entry, fallbackScope = 'all') {
     ? entry.active_id
     : (sets[0]?.id || null);
   return { sets, active_id: activeId };
-}
-
-function readLegacyEntry(scope, type) {
-  try {
-    const setsRaw = localStorage.getItem(legacySetsKey(scope, type));
-    if (setsRaw) {
-      return normalizeEntry({
-        sets: JSON.parse(setsRaw),
-        active_id: localStorage.getItem(legacyActiveKey(scope, type)),
-      }, type);
-    }
-  } catch { /* fall through */ }
-
-  if (scope === GLOBAL_SCOPE) {
-    try {
-      const setsRaw = localStorage.getItem(oldSetsKey(type));
-      if (setsRaw) {
-        return normalizeEntry({
-          sets: JSON.parse(setsRaw),
-          active_id: localStorage.getItem(oldActiveKey(type)),
-        }, type);
-      }
-    } catch { /* fall through */ }
-
-    try {
-      const configRaw = localStorage.getItem(oldConfigKey(type));
-      if (configRaw) {
-        const data = JSON.parse(configRaw);
-        const setId = genSetId();
-        return normalizeEntry({
-          sets: [{ id: setId, name: 'Default', pairs: data.pairs || [] }],
-          active_id: setId,
-        }, type);
-      }
-    } catch { /* ignore */ }
-  }
-  return null;
-}
-
-function dropLegacyEntry(scope, type) {
-  try {
-    localStorage.removeItem(legacySetsKey(scope, type));
-    localStorage.removeItem(legacyActiveKey(scope, type));
-    if (scope === GLOBAL_SCOPE) {
-      localStorage.removeItem(oldSetsKey(type));
-      localStorage.removeItem(oldActiveKey(type));
-      localStorage.removeItem(oldConfigKey(type));
-    }
-  } catch { /* ignore */ }
-}
-
-function legacySourcesForScope(configs, scope) {
-  return ['tag', 'prompt'].flatMap((sourceType) => {
-    const remote = configs?.[scope]?.[sourceType];
-    const entry = remote?.sets?.length
-      ? normalizeEntry(remote, sourceType)
-      : readLegacyEntry(scope, sourceType);
-    return entry?.sets?.length ? [{ sourceType, entry }] : [];
-  });
-}
-
-function mergeLegacySources(sources) {
-  const setsByName = new Map();
-  let activeId = null;
-
-  for (const { sourceType, entry } of sources) {
-    const nameOccurrences = new Map();
-    for (const sourceSet of entry.sets) {
-      const name = sourceSet.name || 'Default';
-      const occurrence = nameOccurrences.get(name) || 0;
-      nameOccurrences.set(name, occurrence + 1);
-      const mergeKey = `${name}\u0000${occurrence}`;
-      let target = setsByName.get(mergeKey);
-      if (!target) {
-        target = { id: genSetId(), name, pairs: [], match_order: [] };
-        setsByName.set(mergeKey, target);
-      }
-
-      const idMap = new Map();
-      const migratedPairs = sourceSet.pairs.map((pair) => {
-        const nextId = genPairId();
-        idMap.set(pair.id, nextId);
-        return {
-          ...pair,
-          id: nextId,
-          terms: normalizePairTerms(pair, sourceType),
-        };
-      });
-      target.pairs.push(...migratedPairs);
-      const sourceOrder = normalizeMatchOrder(sourceSet.match_order, sourceSet.pairs);
-      target.match_order.push(...sourceOrder.map((id) => idMap.get(id)).filter(Boolean));
-
-      if (!activeId && sourceSet.id === entry.active_id) activeId = target.id;
-    }
-  }
-
-  const sets = [...setsByName.values()];
-  return normalizeEntry({ sets, active_id: activeId || sets[0]?.id }, 'all');
 }
 
 function cloneEntryForScope(entry) {
@@ -255,38 +151,8 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
         return;
       }
 
-      const sameTypeLegacy = readLegacyEntry(scope, type);
-      if (sameTypeLegacy?.sets?.length) {
-        setState({ sets: sameTypeLegacy.sets, activeId: sameTypeLegacy.active_id });
-        persistEntry(scope, type, sameTypeLegacy).then(() => dropLegacyEntry(scope, type));
-        return;
-      }
-
-      // The unified configuration absorbs both former tag and prompt configs.
-      // Sets with the same name are merged; each legacy term keeps its original
-      // source scope so migration cannot broaden an existing rule.
-      if (type === 'mixed') {
-        const sources = legacySourcesForScope(configs, scope);
-        if (sources.length > 0) {
-          const merged = mergeLegacySources(sources);
-          setState({ sets: merged.sets, activeId: merged.active_id });
-          persistEntry(scope, type, merged).then(() => {
-            dropLegacyEntry(scope, 'tag');
-            dropLegacyEntry(scope, 'prompt');
-          });
-          return;
-        }
-      }
-
       if (scope !== GLOBAL_SCOPE) {
-        let globalEntry = configs?.[GLOBAL_SCOPE]?.[type];
-        if (!globalEntry?.sets?.length && type === 'mixed') {
-          const globalSources = legacySourcesForScope(configs, GLOBAL_SCOPE);
-          if (globalSources.length > 0) {
-            globalEntry = mergeLegacySources(globalSources);
-            persistEntry(GLOBAL_SCOPE, type, globalEntry);
-          }
-        }
+        const globalEntry = configs?.[GLOBAL_SCOPE]?.[type];
         if (globalEntry?.sets?.length) {
           const seeded = cloneEntryForScope(globalEntry);
           setState({ sets: seeded.sets, activeId: seeded.active_id });

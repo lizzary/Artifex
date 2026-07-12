@@ -1,4 +1,5 @@
 import {
+  groupDisplayName,
   groupIllustrations,
   matchesMixedExpression,
   paginateIllustrationGroups,
@@ -25,6 +26,32 @@ const term = (value, options = {}) => ({
 });
 
 describe('smart grouping expressions', () => {
+  test('uses an optional custom group name and falls back to the Boolean expression', () => {
+    const named = { customName: '  Favorites  ', terms: [term('portrait', { scope: 'prompt' })] };
+    const unnamed = { customName: '   ', terms: [term('portrait', { scope: 'prompt' })] };
+
+    expect(groupDisplayName(named)).toBe('Favorites');
+    expect(groupDisplayName(unnamed)).toBe('prompt:portrait');
+  });
+
+  test('allows repeated custom group names without merging distinct groups', () => {
+    const pairs = [
+      { id: 'a', customName: 'Favorites', terms: [term('cat', { scope: 'tag' })] },
+      { id: 'b', customName: 'Favorites', terms: [term('dog', { scope: 'tag' })] },
+    ];
+    const result = groupIllustrations(
+      [illustration(1, 'cat'), illustration(2, 'dog')],
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['a', 'b'],
+    );
+
+    expect(result.map((group) => [group.id, group.name])).toEqual([
+      ['a', 'Favorites'],
+      ['b', 'Favorites'],
+    ]);
+  });
+
   test('combines exact tags and prompt substrings in one AND rule', () => {
     const pair = {
       terms: [
