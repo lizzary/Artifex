@@ -295,12 +295,16 @@ func (m *model) renderHome() string {
 	}
 
 	art := strings.Split(renderFrameCrab(p, !wide), "\n")
+	artWidth := 0
+	for _, line := range art {
+		artWidth = max(artWidth, lipgloss.Width(line))
+	}
 	leftLines := []string{
 		centerCell(p.textStyle().Bold(true).Render("Welcome to Artifex"), leftWidth),
 		"",
 	}
 	for _, line := range art {
-		leftLines = append(leftLines, centerCell(line, leftWidth))
+		leftLines = append(leftLines, centerCell(fitCell(line, artWidth), leftWidth))
 	}
 	leftLines = append(leftLines,
 		"",
