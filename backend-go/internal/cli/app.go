@@ -27,12 +27,13 @@ type BootResult struct {
 }
 
 type Config struct {
-	Version         string
-	Theme           ThemeMode
-	ThemeConfigPath string
-	Log             *applog.Hub
-	Bootstrap       func() BootResult
-	OpenURL         func(string) error
+	Version      string
+	Theme        ThemeMode
+	ConfigPath   string
+	PortAttempts int
+	Log          *applog.Hub
+	Bootstrap    func() BootResult
+	OpenURL      func(string) error
 }
 
 type screen uint8
@@ -62,6 +63,7 @@ type model struct {
 	followLogs   bool
 	levelFilter  int
 	lastLogCount int
+	portAttempts int
 }
 
 func Run(cfg Config) error {
@@ -74,6 +76,9 @@ func Run(cfg Config) error {
 	if cfg.Bootstrap == nil {
 		cfg.Bootstrap = func() BootResult { return BootResult{} }
 	}
+	if cfg.PortAttempts < 1 || cfg.PortAttempts > MaxPortAttempts {
+		cfg.PortAttempts = DefaultPortAttempts
+	}
 
 	dark := DetectDark(cfg.Theme)
 	m := &model{
@@ -85,6 +90,7 @@ func Run(cfg Config) error {
 		height:       24,
 		booting:      true,
 		followLogs:   true,
+		portAttempts: cfg.PortAttempts,
 	}
 	_, err := tea.NewProgram(m).Run()
 	return err
@@ -226,9 +232,26 @@ func (m *model) execute(command string) (tea.Model, tea.Cmd) {
 		m.screen = homeScreen
 		return m, tea.ClearScreen
 	case "/help":
-		m.notice = "/log  /status  /theme auto|dark|light  /open  /home  /quit"
+		m.notice = "/log  /status  /theme auto|dark|light  /port-attempts 1-65536  /open  /home  /quit"
 	case "/status":
 		m.notice = m.statusText()
+	case "/port-attempts":
+		if len(parts) != 2 {
+			m.notice = "Choose /port-attempts followed by a number from 1 to 65536."
+			return m, nil
+		}
+		attempts, err := ParsePortAttempts(parts[1])
+		if err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		if err := SavePortAttempts(m.cfg.ConfigPath, attempts); err != nil {
+			m.notice = "Could not save the port attempt limit: " + err.Error()
+			return m, nil
+		}
+		m.portAttempts = attempts
+		m.cfg.PortAttempts = attempts
+		m.notice = fmt.Sprintf("Port attempt limit set to %d. It will apply after restart.", attempts)
 	case "/theme":
 		if len(parts) != 2 {
 			m.notice = "Choose /theme auto, /theme dark, or /theme light."
@@ -247,7 +270,7 @@ func (m *model) execute(command string) (tea.Model, tea.Cmd) {
 			dark = false
 		}
 		m.palette = newPalette(dark)
-		if err := SaveTheme(m.cfg.ThemeConfigPath, mode); err != nil {
+		if err := SaveTheme(m.cfg.ConfigPath, mode); err != nil {
 			m.notice = "Theme changed for this session; saving failed: " + err.Error()
 		} else {
 			m.notice = "Terminal appearance set to " + string(mode) + "."
@@ -544,7 +567,7 @@ func (m *model) commandSuggestions() string {
 	if !strings.HasPrefix(m.input, "/") || strings.Contains(m.input, " ") {
 		return ""
 	}
-	commands := []string{"/help", "/home", "/log", "/open", "/quit", "/status", "/theme"}
+	commands := []string{"/help", "/home", "/log", "/open", "/port-attempts", "/quit", "/status", "/theme"}
 	matches := make([]string, 0, len(commands))
 	for _, command := range commands {
 		if strings.HasPrefix(command, strings.ToLower(m.input)) {
@@ -566,10 +589,11 @@ func (m *model) statusText() string {
 		return "Startup failed: " + m.result.Err.Error()
 	}
 	return fmt.Sprintf(
-		"Server %s · Database %s · Tagger %s · Theme %s",
+		"Server %s · Database %s · Tagger %s · Theme %s · Port attempts %d",
 		m.result.URL,
 		filepath.Base(m.result.DatabasePath),
 		m.result.TaggerStatus,
 		m.mode,
+		m.portAttempts,
 	)
 }

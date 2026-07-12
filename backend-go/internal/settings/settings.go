@@ -10,6 +10,17 @@ import (
 // JSON: { "<scope>": { "<type>": { "sets": [...], "active_id": "..." } } }.
 type GroupConfigs map[string]map[string]json.RawMessage
 
+const (
+	DefaultCLITheme     = "auto"
+	DefaultPortAttempts = 30
+	MaxPortAttempts     = 65536
+)
+
+type CLISettings struct {
+	Theme        string `json:"theme"`
+	PortAttempts int    `json:"port_attempts"`
+}
+
 type Settings struct {
 	AutoTag              bool         `json:"auto_tag"`
 	GPUEnabled           bool         `json:"gpu_enabled"`
@@ -17,6 +28,7 @@ type Settings struct {
 	UploadConflictPolicy string       `json:"upload_conflict_policy"`
 	GroupOrder           []int        `json:"group_order"`
 	GroupConfigs         GroupConfigs `json:"group_configs"`
+	CLI                  CLISettings  `json:"cli"`
 }
 
 func Load(path string) (*Settings, error) {
@@ -26,6 +38,10 @@ func Load(path string) (*Settings, error) {
 		UploadConflictPolicy: "save_all",
 		GroupOrder:           []int{},
 		GroupConfigs:         GroupConfigs{},
+		CLI: CLISettings{
+			Theme:        DefaultCLITheme,
+			PortAttempts: DefaultPortAttempts,
+		},
 	}
 
 	data, err := os.ReadFile(path)
@@ -48,6 +64,12 @@ func Load(path string) (*Settings, error) {
 	}
 	if s.GroupConfigs == nil {
 		s.GroupConfigs = GroupConfigs{}
+	}
+	if s.CLI.Theme != "auto" && s.CLI.Theme != "dark" && s.CLI.Theme != "light" {
+		s.CLI.Theme = DefaultCLITheme
+	}
+	if s.CLI.PortAttempts < 1 || s.CLI.PortAttempts > MaxPortAttempts {
+		s.CLI.PortAttempts = DefaultPortAttempts
 	}
 
 	return s, nil

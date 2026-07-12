@@ -8,8 +8,8 @@ import NamingFormatInput from '../components/NamingFormatInput';
 import SettingsSelect from '../components/SettingsSelect';
 import useDownloadConfig from '../hooks/useDownloadConfig';
 import { listModels, uploadModel, deleteModel, deleteDefaultModel } from '../api';
+import { backendUrl } from '../api/url';
 
-const BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
 const LANG_OPTIONS = [
   { value: 'en', labelKey: 'settings.general.language.en' },
   { value: 'zh', labelKey: 'settings.general.language.zh' },
@@ -50,7 +50,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetch(`${BASE_URL}/api/settings`)
+    fetch(backendUrl('/api/settings'))
       .then(r => r.json())
       .then(setSettings)
       .catch(() => {});
@@ -82,7 +82,7 @@ export default function SettingsPage() {
     setSettings(prev => prev ? { ...prev, [key]: value } : prev);
     setSaving(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/settings`, {
+      const res = await fetch(backendUrl('/api/settings'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [key]: value }),
@@ -104,7 +104,7 @@ export default function SettingsPage() {
     if (modelName === activeModel) return;
     setActiveModel(modelName);
     try {
-      const res = await fetch(`${BASE_URL}/api/settings`, {
+      const res = await fetch(backendUrl('/api/settings'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active_model: modelName }),
@@ -122,7 +122,7 @@ export default function SettingsPage() {
   const handleModelDownload = async () => {
     setDownloading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/model/download`, { method: 'POST' });
+      const res = await fetch(backendUrl('/api/model/download'), { method: 'POST' });
       if (!res.ok) throw new Error('Download failed');
       addToast(t('settings.toast.saved'), 'success');
       fetchModels(); // refresh cached status

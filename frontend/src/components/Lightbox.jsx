@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Trash2, Info, Play, Pause, ChevronDown, Timer, Download, Loader2 } from 'lucide-react';
 import { getIllustrationMetadata, updateIllustration } from '../api';
+import { backendUrl } from '../api/url';
 import TagPromptSuggest from './TagPromptSuggest';
 import { useLocale } from '../contexts/LocaleContext';
 import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
@@ -12,7 +13,6 @@ const SLIDESHOW_INTERVAL_MIN = 1;
 const SLIDESHOW_INTERVAL_MAX = 60;
 const SLIDESHOW_INTERVAL_DEFAULT = 3;
 const SLIDESHOW_PRESETS = [2, 3, 5, 10];
-const FILE_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
 
 function clampInterval(n) {
   if (!Number.isFinite(n)) return SLIDESHOW_INTERVAL_DEFAULT;
@@ -178,7 +178,7 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
     if (!currentIllustration || downloading) return;
     setDownloading(true);
     try {
-      const response = await fetch(`${FILE_BASE_URL}${currentIllustration.file_url}`);
+      const response = await fetch(backendUrl(currentIllustration.file_url));
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
       const blob = await response.blob();
@@ -429,7 +429,7 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
               </div>
             ) : (
               <img
-                src={`http://localhost:8000${currentIllustration.file_url}`}
+                src={backendUrl(currentIllustration.file_url)}
                 alt={currentIllustration.original_filename}
                 onError={() => setImageError(true)}
                 className="max-w-full max-h-full object-contain rounded-lg"

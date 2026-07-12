@@ -1,10 +1,13 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
+
+	"artifex-backend/internal/settings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -15,6 +18,9 @@ const (
 	ThemeAuto  ThemeMode = "auto"
 	ThemeDark  ThemeMode = "dark"
 	ThemeLight ThemeMode = "light"
+
+	DefaultPortAttempts = settings.DefaultPortAttempts
+	MaxPortAttempts     = settings.MaxPortAttempts
 )
 
 func ParseTheme(value string) (ThemeMode, error) {
@@ -30,20 +36,12 @@ func ParseTheme(value string) (ThemeMode, error) {
 	}
 }
 
-type persistedConfig struct {
-	Theme ThemeMode `json:"theme"`
-}
-
 func LoadTheme(path string) ThemeMode {
-	data, err := os.ReadFile(path)
+	cfg, err := settings.Load(path)
 	if err != nil {
 		return ThemeAuto
 	}
-	var cfg persistedConfig
-	if json.Unmarshal(data, &cfg) != nil {
-		return ThemeAuto
-	}
-	mode, err := ParseTheme(string(cfg.Theme))
+	mode, err := ParseTheme(cfg.CLI.Theme)
 	if err != nil {
 		return ThemeAuto
 	}
@@ -51,11 +49,40 @@ func LoadTheme(path string) ThemeMode {
 }
 
 func SaveTheme(path string, mode ThemeMode) error {
-	data, err := json.MarshalIndent(persistedConfig{Theme: mode}, "", "  ")
+	cfg, err := settings.Load(path)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	cfg.CLI.Theme = string(mode)
+	return settings.Save(path, cfg)
+}
+
+func ParsePortAttempts(value string) (int, error) {
+	attempts, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || attempts < 1 || attempts > MaxPortAttempts {
+		return 0, fmt.Errorf("port attempts must be between 1 and %d", MaxPortAttempts)
+	}
+	return attempts, nil
+}
+
+func LoadPortAttempts(path string) int {
+	cfg, err := settings.Load(path)
+	if err != nil {
+		return DefaultPortAttempts
+	}
+	return cfg.CLI.PortAttempts
+}
+
+func SavePortAttempts(path string, attempts int) error {
+	if attempts < 1 || attempts > MaxPortAttempts {
+		return fmt.Errorf("port attempts must be between 1 and %d", MaxPortAttempts)
+	}
+	cfg, err := settings.Load(path)
+	if err != nil {
+		return err
+	}
+	cfg.CLI.PortAttempts = attempts
+	return settings.Save(path, cfg)
 }
 
 func DetectDark(mode ThemeMode) bool {

@@ -326,8 +326,13 @@ npm run build
 ```bash
 npm start
 # 在 http://localhost:3000 启动 React 开发服务器
-# API 调用会代理到 Go 后端(在 package.json 的 "proxy" 中配置)
+# 如果后端使用不同来源，请将 REACT_APP_API_BASE_URL 设为后端地址
 ```
+
+打包版使用同源 API 和图片地址，因此会自动跟随后端实际选择的端口。单独运行
+React 与 Go 开发服务器时，请使用 CLI 显示的后端地址启动 React，例如在
+PowerShell 中执行
+`$env:REACT_APP_API_BASE_URL='http://localhost:8001'; npm start`。
 
 ---
 
@@ -474,14 +479,14 @@ build.bat run
 
 **命令行参数:**
 
-| 参数        | 默认值                  | 说明                                                |
-| ----------- | ----------------------- | --------------------------------------------------- |
-| `-host`     | `127.0.0.1`             | 监听地址(局域网访问请用 `0.0.0.0`)                |
-| `-port`     | `8000`                  | 监听端口                                            |
-| `-db`       | `<basedir>/gallery.db`  | SQLite 数据库路径                                   |
-| `-uploads`  | `<basedir>/uploads`     | 图片存储目录                                        |
-| `-models`   | `<basedir>/models`      | ONNX 模型目录                                       |
-| `-frontend` | 自动检测                | 前端构建目录                                        |
+| 参数        | 默认值                 | 说明                                    |
+| ----------- | ---------------------- | --------------------------------------- |
+| `-host`     | `127.0.0.1`            | 监听地址(局域网访问请用 `0.0.0.0`)      |
+| `-port`     | `8000`                 | 首个尝试监听的端口                      |
+| `-db`       | `<basedir>/gallery.db` | SQLite 数据库路径                       |
+| `-uploads`  | `<basedir>/uploads`    | 图片存储目录                            |
+| `-models`   | `<basedir>/models`     | ONNX 模型目录                           |
+| `-frontend` | 自动检测               | 前端构建目录                            |
 
 在浏览器中打开 **<http://127.0.0.1:8000>**。
 
@@ -570,14 +575,15 @@ GCC / MinGW 未安装或不在 `PATH` 中。请按
 
 **8000 端口被占用**
 
-```cmd
-:: Windows —— 找出并结束占用进程:
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
+Artifex 默认会自动递增端口，最多连续尝试 30 个端口。可通过
+Bubble Tea 终端中的命令修改最大尝试次数：
 
-:: 或换一个端口:
-artifex-server.exe -port 8001
+```text
+/port-attempts 10
 ```
+
+该设置会保存到 `settings.json` 的 `cli` 配置段，重启 Artifex 后生效。不再支持
+`-port-attempts` 进程启动参数。
 
 ---
 

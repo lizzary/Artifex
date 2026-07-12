@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Star, Trash2 } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
+import { backendUrl } from '../api/url';
 
 export default function IllustrationCard({
   illustration,
@@ -58,7 +59,7 @@ export default function IllustrationCard({
           <span className="text-content-muted text-xs">{t('illustrationCard.loadFailed')}</span>
         ) : (
           <img
-            src={`http://localhost:8000${illustration.thumbnail_url}?quality=${quality}`}
+            src={backendUrl(`${illustration.thumbnail_url}?quality=${quality}`)}
             alt={illustration.original_filename}
             onError={() => setImgError(true)}
             className={`w-full h-full object-cover transition-transform duration-200 ${

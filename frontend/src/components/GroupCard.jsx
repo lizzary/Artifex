@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Trash2, Pencil, GripVertical } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
+import { backendUrl } from '../api/url';
 
 export default function GroupCard({ group, onClick, onDelete, onRename, quality = 'low', onReorderRequest }) {
   const { t } = useLocale();
@@ -76,7 +77,7 @@ export default function GroupCard({ group, onClick, onDelete, onRename, quality 
       <div className="aspect-[4/5] bg-surface-tertiary flex items-center justify-center overflow-hidden">
         {group.cover_thumbnail_url ? (
           <img
-            src={`http://localhost:8000${group.cover_thumbnail_url}?quality=${quality}`}
+            src={backendUrl(`${group.cover_thumbnail_url}?quality=${quality}`)}
             alt={group.name}
             draggable={false}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

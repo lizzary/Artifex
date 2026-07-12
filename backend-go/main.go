@@ -32,17 +32,17 @@ import (
 var version = "dev"
 
 type options struct {
-	host          string
-	port          int
-	baseDir       string
-	dbPath        string
-	uploadsDir    string
-	modelsDir     string
-	frontendDir   string
-	settingsPath  string
-	cliConfigPath string
-	cliTheme      string
-	noUI          bool
+	host         string
+	port         int
+	portAttempts int
+	baseDir      string
+	dbPath       string
+	uploadsDir   string
+	modelsDir    string
+	frontendDir  string
+	settingsPath string
+	cliTheme     string
+	noUI         bool
 }
 
 type appRuntime struct {
@@ -72,7 +72,9 @@ func run() error {
 	stdlog.SetFlags(0)
 	stdlog.SetOutput(hub.Writer("app", applog.LevelWarn))
 
-	mode := cli.LoadTheme(opts.cliConfigPath)
+	opts.portAttempts = cli.LoadPortAttempts(opts.settingsPath)
+
+	mode := cli.LoadTheme(opts.settingsPath)
 	if opts.cliTheme != "" {
 		parsed, err := cli.ParseTheme(opts.cliTheme)
 		if err != nil {
@@ -89,12 +91,13 @@ func run() error {
 
 	if interactive {
 		err := cli.Run(cli.Config{
-			Version:         version,
-			Theme:           mode,
-			ThemeConfigPath: opts.cliConfigPath,
-			Log:             hub,
-			Bootstrap:       rt.bootstrap,
-			OpenURL:         openBrowser,
+			Version:      version,
+			Theme:        mode,
+			ConfigPath:   opts.settingsPath,
+			PortAttempts: opts.portAttempts,
+			Log:          hub,
+			Bootstrap:    rt.bootstrap,
+			OpenURL:      openBrowser,
 		})
 		shutdownErr := rt.shutdown()
 		if err != nil {
@@ -164,18 +167,19 @@ func parseOptions() options {
 		}
 	}
 
+	settingsPath := filepath.Join(baseDir, "settings.json")
 	return options{
-		host:          *host,
-		port:          *port,
-		baseDir:       baseDir,
-		dbPath:        *dbPath,
-		uploadsDir:    *uploadsDir,
-		modelsDir:     *modelsDir,
-		frontendDir:   *frontendDir,
-		settingsPath:  filepath.Join(baseDir, "settings.json"),
-		cliConfigPath: filepath.Join(baseDir, "cli.json"),
-		cliTheme:      *cliTheme,
-		noUI:          *noUI,
+		host:         *host,
+		port:         *port,
+		portAttempts: cli.DefaultPortAttempts,
+		baseDir:      baseDir,
+		dbPath:       *dbPath,
+		uploadsDir:   *uploadsDir,
+		modelsDir:    *modelsDir,
+		frontendDir:  *frontendDir,
+		settingsPath: settingsPath,
+		cliTheme:     *cliTheme,
+		noUI:         *noUI,
 	}
 }
 
@@ -231,12 +235,26 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 		Log:          rt.log,
 	})
 
-	addr := net.JoinHostPort(rt.opts.host, strconv.Itoa(rt.opts.port))
-	listener, err := net.Listen("tcp", addr)
+	listener, selectedPort, attempts, err := listenOnAvailablePort(
+		rt.opts.host,
+		rt.opts.port,
+		rt.opts.portAttempts,
+		net.Listen,
+	)
 	if err != nil {
-		result.Err = fmt.Errorf("listen on %s: %w", addr, err)
+		result.Err = err
 		rt.log.Error("server", "%v", result.Err)
 		return result
+	}
+	addr := net.JoinHostPort(rt.opts.host, strconv.Itoa(selectedPort))
+	if attempts > 1 {
+		rt.log.Warn(
+			"server",
+			"port %d was unavailable; using port %d after %d attempts",
+			rt.opts.port,
+			selectedPort,
+			attempts,
+		)
 	}
 
 	httpServer := &http.Server{
@@ -275,6 +293,57 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}()
 
 	return result
+}
+
+type listenFunc func(network, address string) (net.Listener, error)
+
+func listenOnAvailablePort(host string, startPort, maxAttempts int, listen listenFunc) (net.Listener, int, int, error) {
+	if startPort < 0 || startPort > 65535 {
+		return nil, 0, 0, fmt.Errorf("invalid port %d: must be between 0 and 65535", startPort)
+	}
+	if maxAttempts < 1 {
+		return nil, 0, 0, fmt.Errorf("invalid port attempt limit %d: must be at least 1", maxAttempts)
+	}
+
+	port := startPort
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		addr := net.JoinHostPort(host, strconv.Itoa(port))
+		listener, err := listen("tcp", addr)
+		if err == nil {
+			return listener, port, attempt, nil
+		}
+		if !isAddressInUse(err) {
+			return nil, 0, attempt, fmt.Errorf("listen on %s: %w", addr, err)
+		}
+		lastErr = err
+		if port == 65535 {
+			return nil, 0, attempt, fmt.Errorf(
+				"listen starting at port %d: stopped after %d attempts because the port range ends at 65535: %w",
+				startPort,
+				attempt,
+				lastErr,
+			)
+		}
+		port++
+	}
+
+	return nil, 0, maxAttempts, fmt.Errorf(
+		"listen on ports %d-%d: all %d attempts failed because the ports are in use: %w",
+		startPort,
+		port-1,
+		maxAttempts,
+		lastErr,
+	)
+}
+
+func isAddressInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	// Go's syscall.EADDRINUSE on Windows is an invented compatibility value,
+	// while net.Listen wraps the real WinSock WSAEADDRINUSE value (10048).
+	return runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048))
 }
 
 func (rt *appRuntime) waitPlain() error {

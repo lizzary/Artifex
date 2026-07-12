@@ -1,7 +1,7 @@
-const BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
+import { backendUrl } from './url';
 
 async function request(path, options = {}) {
-  const url = `${BASE_URL}${path}`;
+  const url = backendUrl(path);
   const res = await fetch(url, options);
   if (res.status === 204) return null;
   if (!res.ok) {

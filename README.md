@@ -341,8 +341,14 @@ For development with hot reload:
 ```bash
 npm start
 # Starts React dev server at http://localhost:3000
-# API calls are proxied to the Go backend (configure in package.json "proxy")
+# If the backend uses a different origin, set REACT_APP_API_BASE_URL to its URL
 ```
+
+Packaged builds use same-origin API and image URLs, so they automatically
+follow the port selected by the Artifex backend. When running the React and Go
+servers separately, start React with the backend URL reported by the CLI, for
+example `$env:REACT_APP_API_BASE_URL='http://localhost:8001'; npm start` in
+PowerShell.
 
 ---
 
@@ -492,7 +498,7 @@ build.bat run
 | Flag        | Default                | Description                                   |
 | ----------- | ---------------------- | --------------------------------------------- |
 | `-host`     | `127.0.0.1`            | Listen address (use `0.0.0.0` for LAN access) |
-| `-port`     | `8000`                 | Listen port                                   |
+| `-port`     | `8000`                 | First listen port to try                      |
 | `-db`       | `<basedir>/gallery.db` | SQLite database path                          |
 | `-uploads`  | `<basedir>/uploads`    | Image storage directory                       |
 | `-models`   | `<basedir>/models`     | ONNX model directory                          |
@@ -586,14 +592,15 @@ then `../frontend/build` (dev layout).
 
 **Port 8000 is already in use**
 
-```cmd
-:: Windows — find and kill the process:
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
+Artifex automatically tries the next port, up to 30 consecutive ports by
+default. To change that limit, enter this command in the Bubble Tea terminal:
 
-:: Or pick a different port:
-artifex-server.exe -port 8001
+```text
+/port-attempts 10
 ```
+
+The setting is saved under `cli` in `settings.json` and applies after restarting Artifex. The
+`-port-attempts` process flag is not supported.
 
 ---
 
