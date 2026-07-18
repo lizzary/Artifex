@@ -96,7 +96,7 @@ describe('color group board layout', () => {
           pairs={[pair]}
           matchOrder={['warm']}
           manualAssignments={{}}
-          quality="low"
+          quality="original"
           onAssign={jest.fn()}
           onConfigure={jest.fn()}
           onClose={jest.fn()}
@@ -108,9 +108,14 @@ describe('color group board layout', () => {
       clientX: 160,
       clientY: 140,
     });
+    const boardThumbnail = document.querySelector('[data-board-card] img');
+    expect(boardThumbnail).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
+    expect(boardThumbnail).toHaveAttribute('loading', 'lazy');
+    expect(boardThumbnail).toHaveAttribute('decoding', 'async');
     const previewImage = screen.getByRole('img', { name: '1.png' });
     expect(previewImage).toHaveClass('object-contain');
     expect(previewImage.parentElement).toHaveStyle({ height: '360px' });
+    expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=normal');
     fireEvent.error(previewImage);
     expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
   });

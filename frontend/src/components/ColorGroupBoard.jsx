@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -23,6 +23,41 @@ const PREVIEW_MEDIA_WIDTH = 240;
 const PREVIEW_MEDIA_MIN_HEIGHT = 80;
 const PREVIEW_MEDIA_MAX_HEIGHT = 360;
 const PREVIEW_CHROME_HEIGHT = 64;
+const BOARD_CARD_QUALITY = 'low';
+const BOARD_PREVIEW_QUALITY = 'normal';
+
+function requestFrame(callback) {
+  if (typeof window.requestAnimationFrame === 'function') {
+    return window.requestAnimationFrame(callback);
+  }
+  return window.setTimeout(callback, 16);
+}
+
+function cancelFrame(frameId) {
+  if (frameId == null) return;
+  if (typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(frameId);
+  } else {
+    window.clearTimeout(frameId);
+  }
+}
+
+function sameSet(left, right) {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+function useStableEvent(handler) {
+  const handlerRef = useRef(handler);
+  useLayoutEffect(() => {
+    handlerRef.current = handler;
+  });
+  return useCallback((...args) => handlerRef.current(...args), []);
+}
 
 function circleRadius(itemCount) {
   return clamp(230 + Math.sqrt(Math.max(itemCount, 1)) * 48, 258, 700);
@@ -40,6 +75,185 @@ function rectFromPoints(start, end) {
     bottom: Math.max(start.y, end.y),
   };
 }
+
+function previewGeometry(illustration, clientX, clientY) {
+  const mediaHeight = getAspectFitPreviewHeight(
+    illustration,
+    PREVIEW_MEDIA_WIDTH,
+    PREVIEW_MEDIA_MIN_HEIGHT,
+    PREVIEW_MEDIA_MAX_HEIGHT,
+  );
+  return {
+    mediaHeight,
+    left: Math.min(clientX + 18, Math.max(12, window.innerWidth - 286)),
+    top: Math.min(
+      clientY + 18,
+      Math.max(12, window.innerHeight - mediaHeight - PREVIEW_CHROME_HEIGHT),
+    ),
+  };
+}
+
+const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget }) {
+  const { t } = useLocale();
+
+  return circles.map((circle) => {
+    const isTarget = dropTarget === circle.id;
+    return (
+      <div
+        key={circle.id}
+        className="pointer-events-none absolute rounded-full border-2 transition-[box-shadow,filter] duration-150"
+        style={{
+          left: circle.x - circle.radius,
+          top: circle.y - circle.radius,
+          width: circle.radius * 2,
+          height: circle.radius * 2,
+          backgroundColor: circle.color,
+          borderColor: circle.borderColor,
+          boxShadow: isTarget
+            ? `0 0 0 10px ${circle.color}, 0 30px 80px rgb(var(--clr-overlay) / 0.18)`
+            : '0 24px 70px rgb(var(--clr-overlay) / 0.08)',
+          filter: isTarget ? 'saturate(1.2)' : undefined,
+        }}
+      >
+        <div
+          className="absolute left-1/2 top-7 -translate-x-1/2 whitespace-nowrap rounded-2xl border bg-surface-secondary/92 px-4 py-2.5 shadow-lg shadow-overlay/10 backdrop-blur-xl"
+          style={{ borderColor: circle.borderColor }}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: circle.borderColor }} />
+            <span className="max-w-[240px] truncate text-sm font-semibold text-content-primary">{circle.label}</span>
+            <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[10px] tabular-nums text-content-muted">
+              {circle.items.length}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-center gap-3 text-[9px] text-content-muted">
+            <span className="flex items-center gap-1 text-accent">
+              <Hand className="h-2.5 w-2.5" />
+              {t('colorBoard.count.manual', { count: circle.manualCount })}
+            </span>
+            <span className="flex items-center gap-1">
+              <InferenceIcon className="h-2.5 w-2.5" />
+              {t('colorBoard.count.automatic', { count: circle.computedCount })}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  });
+});
+
+const BoardCard = memo(function BoardCard({
+  card,
+  selected,
+  dragging,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onMouseEnter,
+  onMouseMove,
+  onMouseLeave,
+  onKeyboardSelect,
+}) {
+  const { t } = useLocale();
+  const id = card.illustration.id;
+  const membership = card.membership;
+  const sourceLabel = membership?.source === 'manual'
+    ? t('colorBoard.source.manual')
+    : membership?.source === 'computed'
+      ? t('colorBoard.source.automatic')
+      : t('colorBoard.source.other');
+  const SourceIcon = membership?.source === 'manual'
+    ? Hand
+    : membership?.source === 'computed' ? InferenceIcon : CircleDot;
+
+  return (
+    <button
+      type="button"
+      data-board-card
+      aria-pressed={selected}
+      aria-label={`${card.illustration.original_filename} · ${sourceLabel}`}
+      className={`group/card absolute rounded-2xl border-2 bg-surface-secondary p-1 shadow-lg transition-[border-color,box-shadow,filter] focus:outline-none focus:ring-4 focus:ring-accent/30 ${
+        selected
+          ? 'border-accent shadow-xl shadow-accent/20'
+          : 'border-surface-secondary hover:border-accent/45 hover:shadow-xl'
+      } ${dragging ? 'z-20 cursor-grabbing' : 'z-10 cursor-grab'}`}
+      style={{
+        left: card.x,
+        top: card.y,
+        width: CARD_SIZE,
+        height: CARD_SIZE,
+        transform: dragging
+          ? `translate3d(var(--board-drag-x, 0px), var(--board-drag-y, 0px), 0) rotate(${card.rotation}deg) scale(1.05)`
+          : `rotate(${card.rotation}deg)`,
+        filter: dragging ? 'saturate(1.08)' : undefined,
+      }}
+      onPointerDown={(event) => onPointerDown(event, card)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onMouseEnter={(event) => onMouseEnter(event, card)}
+      onMouseMove={(event) => onMouseMove(event, card)}
+      onMouseLeave={() => onMouseLeave(id)}
+      onClick={(event) => {
+        if (event.detail === 0) onKeyboardSelect(id);
+      }}
+    >
+      <img
+        src={backendUrl(`${card.illustration.thumbnail_url}?quality=${BOARD_CARD_QUALITY}`)}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable="false"
+        className="h-full w-full rounded-xl object-cover"
+      />
+      <span className={`absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full border border-surface-secondary text-white shadow-md ${
+        membership?.source === 'manual' ? 'bg-accent' : 'bg-content-tertiary'
+      }`} title={sourceLabel}>
+        <SourceIcon className="h-2.5 w-2.5" />
+      </span>
+      {selected && (
+        <span className="absolute -bottom-1 -left-1 grid h-5 w-5 place-items-center rounded-full border-2 border-surface-secondary bg-accent text-[10px] font-bold text-white shadow-md">
+          <Check className="h-2.5 w-2.5" strokeWidth={3} />
+        </span>
+      )}
+    </button>
+  );
+});
+
+const BoardCardsLayer = memo(function BoardCardsLayer({
+  cards,
+  selectedIds,
+  draggingIds,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onMouseEnter,
+  onMouseMove,
+  onMouseLeave,
+  onKeyboardSelect,
+}) {
+  return cards.map((card) => {
+    const id = card.illustration.id;
+    return (
+      <BoardCard
+        key={id}
+        card={card}
+        selected={selectedIds.has(id)}
+        dragging={draggingIds.has(id)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onMouseEnter={onMouseEnter}
+        onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
+        onKeyboardSelect={onKeyboardSelect}
+      />
+    );
+  });
+});
 
 export function buildColorBoardLayout(
   illustrations,
@@ -156,7 +370,6 @@ export default function ColorGroupBoard({
   pairs,
   matchOrder,
   manualAssignments,
-  quality,
   onAssign,
   onDownload,
   onDelete,
@@ -166,13 +379,22 @@ export default function ColorGroupBoard({
 }) {
   const { t } = useLocale();
   const viewportRef = useRef(null);
+  const worldRef = useRef(null);
+  const selectionRectRef = useRef(null);
+  const previewRef = useRef(null);
   const gestureRef = useRef(null);
   const didFitRef = useRef(false);
-  const [view, setView] = useState({ x: 0, y: 0, scale: 0.72 });
+  const initialView = { x: 0, y: 0, scale: 0.72 };
+  const viewRef = useRef(initialView);
+  const viewFrameRef = useRef(null);
+  const pendingViewRef = useRef(null);
+  const dragFrameRef = useRef(null);
+  const pendingDragOffsetRef = useRef(null);
+  const previewFrameRef = useRef(null);
+  const pendingPreviewGeometryRef = useRef(null);
+  const [view, setView] = useState(initialView);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [draggingIds, setDraggingIds] = useState(new Set());
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [selectionRect, setSelectionRect] = useState(null);
   const [preview, setPreview] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [lastAction, setLastAction] = useState('');
@@ -199,14 +421,110 @@ export default function ColorGroupBoard({
     return circleById.get(membership?.effectiveGroupId)?.label || t('colorBoard.tags.otherGroup');
   }, [circleById, layout.memberships, t]);
 
+  const applyWorldTransform = useCallback((nextView) => {
+    if (!worldRef.current) return;
+    worldRef.current.style.transform = `translate3d(${nextView.x}px, ${nextView.y}px, 0) scale(${nextView.scale})`;
+  }, []);
+
+  const commitView = useCallback((nextView) => {
+    cancelFrame(viewFrameRef.current);
+    viewFrameRef.current = null;
+    pendingViewRef.current = null;
+    viewRef.current = nextView;
+    applyWorldTransform(nextView);
+    setView(nextView);
+  }, [applyWorldTransform]);
+
+  const queueViewTransform = useCallback((nextView) => {
+    viewRef.current = nextView;
+    pendingViewRef.current = nextView;
+    if (viewFrameRef.current != null) return;
+    viewFrameRef.current = requestFrame(() => {
+      viewFrameRef.current = null;
+      const pending = pendingViewRef.current;
+      pendingViewRef.current = null;
+      if (pending) applyWorldTransform(pending);
+    });
+  }, [applyWorldTransform]);
+
+  const flushViewTransform = useCallback(() => {
+    cancelFrame(viewFrameRef.current);
+    viewFrameRef.current = null;
+    const pending = pendingViewRef.current;
+    pendingViewRef.current = null;
+    if (pending) applyWorldTransform(pending);
+  }, [applyWorldTransform]);
+
+  const applyDragOffset = useCallback(({ x, y }) => {
+    if (!worldRef.current) return;
+    worldRef.current.style.setProperty('--board-drag-x', `${x}px`);
+    worldRef.current.style.setProperty('--board-drag-y', `${y}px`);
+  }, []);
+
+  const queueDragOffset = useCallback((offset) => {
+    pendingDragOffsetRef.current = offset;
+    if (dragFrameRef.current != null) return;
+    dragFrameRef.current = requestFrame(() => {
+      dragFrameRef.current = null;
+      const pending = pendingDragOffsetRef.current;
+      pendingDragOffsetRef.current = null;
+      if (pending) applyDragOffset(pending);
+    });
+  }, [applyDragOffset]);
+
+  const resetDragOffset = useCallback(() => {
+    cancelFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
+    pendingDragOffsetRef.current = null;
+    applyDragOffset({ x: 0, y: 0 });
+  }, [applyDragOffset]);
+
+  const applyPreviewGeometry = useCallback((geometry) => {
+    if (!previewRef.current) return;
+    previewRef.current.style.left = `${geometry.left}px`;
+    previewRef.current.style.top = `${geometry.top}px`;
+  }, []);
+
+  const queuePreviewGeometry = useCallback((geometry) => {
+    pendingPreviewGeometryRef.current = geometry;
+    if (previewFrameRef.current != null) return;
+    previewFrameRef.current = requestFrame(() => {
+      previewFrameRef.current = null;
+      const pending = pendingPreviewGeometryRef.current;
+      pendingPreviewGeometryRef.current = null;
+      if (pending) applyPreviewGeometry(pending);
+    });
+  }, [applyPreviewGeometry]);
+
+  const clearPreview = useCallback(() => {
+    cancelFrame(previewFrameRef.current);
+    previewFrameRef.current = null;
+    pendingPreviewGeometryRef.current = null;
+    setPreview(null);
+  }, []);
+
+  const drawSelectionRect = useCallback((rect) => {
+    if (!selectionRectRef.current) return;
+    selectionRectRef.current.hidden = false;
+    selectionRectRef.current.style.left = `${rect.left}px`;
+    selectionRectRef.current.style.top = `${rect.top}px`;
+    selectionRectRef.current.style.width = `${rect.right - rect.left}px`;
+    selectionRectRef.current.style.height = `${rect.bottom - rect.top}px`;
+  }, []);
+
+  const hideSelectionRect = useCallback(() => {
+    if (selectionRectRef.current) selectionRectRef.current.hidden = true;
+  }, []);
+
   const toWorld = useCallback((clientX, clientY) => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
+    const currentView = viewRef.current;
     return {
-      x: (clientX - rect.left - view.x) / view.scale,
-      y: (clientY - rect.top - view.y) / view.scale,
+      x: (clientX - rect.left - currentView.x) / currentView.scale,
+      y: (clientY - rect.top - currentView.y) / currentView.scale,
     };
-  }, [view]);
+  }, []);
 
   const fitToView = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -216,23 +534,28 @@ export default function ColorGroupBoard({
       MIN_SCALE,
       1,
     );
-    setView({
+    commitView({
       scale,
       x: (rect.width - layout.worldWidth * scale) / 2,
       y: (rect.height - layout.worldHeight * scale) / 2,
     });
-  }, [layout.worldHeight, layout.worldWidth]);
+  }, [commitView, layout.worldHeight, layout.worldWidth]);
 
   const focusInitialView = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
     const scale = rect.width < 900 ? 0.58 : 0.72;
-    setView({
+    commitView({
       scale,
       x: (rect.width - layout.worldWidth * scale) / 2,
       y: 96 - WORLD_MARGIN * scale,
     });
-  }, [layout.worldWidth]);
+  }, [commitView, layout.worldWidth]);
+
+  useLayoutEffect(() => {
+    viewRef.current = view;
+    applyWorldTransform(view);
+  }, [applyWorldTransform, view]);
 
   useLayoutEffect(() => {
     if (didFitRef.current) return;
@@ -256,12 +579,19 @@ export default function ColorGroupBoard({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, tagPanelOpen]);
 
-  useEffect(() => () => gestureRef.current?.cleanup?.(), []);
+  useEffect(() => () => {
+    gestureRef.current?.cleanup?.();
+    cancelFrame(gestureRef.current?.frameId);
+    cancelFrame(viewFrameRef.current);
+    cancelFrame(dragFrameRef.current);
+    cancelFrame(previewFrameRef.current);
+  }, []);
 
   useEffect(() => {
     setSelectedIds((previous) => {
       const availableIds = new Set(illustrations.map((illustration) => illustration.id));
-      return new Set([...previous].filter((id) => availableIds.has(id)));
+      const next = new Set([...previous].filter((id) => availableIds.has(id)));
+      return sameSet(previous, next) ? previous : next;
     });
   }, [illustrations]);
 
@@ -278,22 +608,45 @@ export default function ColorGroupBoard({
   const zoomTo = useCallback((nextScale) => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setView((previous) => {
-      const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
-      const center = { x: rect.width / 2, y: rect.height / 2 };
-      const worldCenter = {
-        x: (center.x - previous.x) / previous.scale,
-        y: (center.y - previous.y) / previous.scale,
-      };
-      return {
-        scale,
-        x: center.x - worldCenter.x * scale,
-        y: center.y - worldCenter.y * scale,
-      };
+    const previous = viewRef.current;
+    const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
+    const center = { x: rect.width / 2, y: rect.height / 2 };
+    const worldCenter = {
+      x: (center.x - previous.x) / previous.scale,
+      y: (center.y - previous.y) / previous.scale,
+    };
+    commitView({
+      scale,
+      x: center.x - worldCenter.x * scale,
+      y: center.y - worldCenter.y * scale,
     });
-  }, []);
+  }, [commitView]);
 
-  const handleViewportPointerDown = (event) => {
+  const applyMarqueeSelection = useStableEvent((gesture, current) => {
+    const rect = rectFromPoints(gesture.start, current);
+    const nextSelection = new Set(gesture.baseSelection);
+    layout.cards.forEach((card) => {
+      const centerX = card.x + CARD_SIZE / 2;
+      const centerY = card.y + CARD_SIZE / 2;
+      if (centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom) {
+        nextSelection.add(card.illustration.id);
+      }
+    });
+    drawSelectionRect(rect);
+    setSelectedIds((previous) => (sameSet(previous, nextSelection) ? previous : nextSelection));
+  });
+
+  const queueMarqueeSelection = useStableEvent((gesture, current) => {
+    gesture.pendingPoint = current;
+    if (gesture.frameId != null) return;
+    gesture.frameId = requestFrame(() => {
+      gesture.frameId = null;
+      if (gestureRef.current !== gesture || !gesture.pendingPoint) return;
+      applyMarqueeSelection(gesture, gesture.pendingPoint);
+    });
+  });
+
+  const handleViewportPointerDown = useStableEvent((event) => {
     if (event.button === 2) {
       event.preventDefault();
       viewportRef.current?.setPointerCapture(event.pointerId);
@@ -301,9 +654,10 @@ export default function ColorGroupBoard({
         type: 'pan',
         pointerId: event.pointerId,
         startClient: { x: event.clientX, y: event.clientY },
-        startView: view,
+        startView: viewRef.current,
       };
-      setPreview(null);
+      if (viewportRef.current) viewportRef.current.style.cursor = 'grabbing';
+      clearPreview();
       return;
     }
 
@@ -314,20 +668,20 @@ export default function ColorGroupBoard({
     const start = toWorld(event.clientX, event.clientY);
     const additive = event.ctrlKey || event.metaKey || event.shiftKey;
     const baseSelection = additive ? new Set(selectedIds) : new Set();
-    if (!additive) setSelectedIds(new Set());
+    if (!additive) setSelectedIds((previous) => (previous.size === 0 ? previous : new Set()));
     viewportRef.current?.setPointerCapture(event.pointerId);
     gestureRef.current = {
       type: 'marquee', pointerId: event.pointerId, start, baseSelection,
     };
-    setSelectionRect({ ...rectFromPoints(start, start), width: 0, height: 0 });
-    setPreview(null);
-  };
+    drawSelectionRect(rectFromPoints(start, start));
+    clearPreview();
+  });
 
-  const handleViewportPointerMove = (event) => {
+  const handleViewportPointerMove = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (gesture.type === 'pan') {
-      setView({
+      queueViewTransform({
         ...gesture.startView,
         x: gesture.startView.x + event.clientX - gesture.startClient.x,
         y: gesture.startView.y + event.clientY - gesture.startClient.y,
@@ -337,51 +691,55 @@ export default function ColorGroupBoard({
     if (gesture.type !== 'marquee') return;
 
     const current = toWorld(event.clientX, event.clientY);
-    const rect = rectFromPoints(gesture.start, current);
-    const hits = layout.cards.filter((card) => {
-      const centerX = card.x + CARD_SIZE / 2;
-      const centerY = card.y + CARD_SIZE / 2;
-      return centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
-    }).map((card) => card.illustration.id);
-    setSelectionRect({
-      ...rect,
-      width: rect.right - rect.left,
-      height: rect.bottom - rect.top,
-    });
-    setSelectedIds(new Set([...gesture.baseSelection, ...hits]));
-  };
+    queueMarqueeSelection(gesture, current);
+  });
 
-  const handleViewportPointerUp = (event) => {
+  const handleViewportPointerUp = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (gesture.type === 'cards') {
       handleCardPointerUp(event);
       return;
     }
+    if (gesture.type === 'pan') {
+      flushViewTransform();
+      setView({ ...viewRef.current });
+      if (viewportRef.current) viewportRef.current.style.cursor = 'default';
+    } else if (gesture.type === 'marquee') {
+      cancelFrame(gesture.frameId);
+      gesture.frameId = null;
+      applyMarqueeSelection(gesture, toWorld(event.clientX, event.clientY));
+      hideSelectionRect();
+    }
     if (gesture.type === 'pan' || gesture.type === 'marquee') {
       gestureRef.current = null;
-      setSelectionRect(null);
       if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
         viewportRef.current.releasePointerCapture(event.pointerId);
       }
     }
-  };
+  });
 
-  const handleViewportPointerCancel = (event) => {
+  const handleViewportPointerCancel = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (gesture.type === 'cards') {
       handleCardPointerCancel(event);
       return;
     }
+    cancelFrame(gesture.frameId);
+    if (gesture.type === 'pan') {
+      flushViewTransform();
+      setView({ ...viewRef.current });
+      if (viewportRef.current) viewportRef.current.style.cursor = 'default';
+    }
     gestureRef.current = null;
-    setSelectionRect(null);
+    hideSelectionRect();
     if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
       viewportRef.current.releasePointerCapture(event.pointerId);
     }
-  };
+  });
 
-  const handleCardPointerDown = (event, card) => {
+  const handleCardPointerDown = useStableEvent((event, card) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -420,28 +778,28 @@ export default function ColorGroupBoard({
     window.addEventListener('pointerup', finishAnywhere, true);
     window.addEventListener('pointercancel', cancelAnywhere, true);
     setDraggingIds(new Set(ids));
-    setDragOffset({ x: 0, y: 0 });
+    resetDragOffset();
     setDropTarget(null);
-    setPreview(null);
+    clearPreview();
     event.currentTarget.setPointerCapture(event.pointerId);
-  };
+  });
 
-  const handleCardPointerMove = (event) => {
+  const handleCardPointerMove = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.type !== 'cards' || gesture.pointerId !== event.pointerId) return;
-    const dx = (event.clientX - gesture.startClient.x) / view.scale;
-    const dy = (event.clientY - gesture.startClient.y) / view.scale;
+    const dx = (event.clientX - gesture.startClient.x) / viewRef.current.scale;
+    const dy = (event.clientY - gesture.startClient.y) / viewRef.current.scale;
     if (!gesture.dragged && Math.hypot(dx, dy) < 5) return;
     gesture.dragged = true;
-    setDragOffset({ x: dx, y: dy });
+    queueDragOffset({ x: dx, y: dy });
     const worldPoint = toWorld(event.clientX, event.clientY);
     const target = layout.circles.find((circle) => pointInCircle(worldPoint, circle));
     gesture.hasDropTarget = true;
     gesture.dropTargetId = target?.id || null;
     setDropTarget(target?.id || 'outside');
-  };
+  });
 
-  const handleCardPointerUp = (event) => {
+  const handleCardPointerUp = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.type !== 'cards' || gesture.pointerId !== event.pointerId) return;
     if (gesture.dragged && gesture.ids.length > 0) {
@@ -458,41 +816,50 @@ export default function ColorGroupBoard({
     gesture.cleanup?.();
     gestureRef.current = null;
     setDraggingIds(new Set());
-    setDragOffset({ x: 0, y: 0 });
+    resetDragOffset();
     setDropTarget(null);
     if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  };
+  });
 
-  const handleCardPointerCancel = (event) => {
+  const handleCardPointerCancel = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     gesture.cleanup?.();
     gestureRef.current = null;
     setDraggingIds(new Set());
-    setDragOffset({ x: 0, y: 0 });
+    resetDragOffset();
     setDropTarget(null);
-  };
+  });
+
+  const handleCardMouseEnter = useStableEvent((event, card) => {
+    if (gestureRef.current) return;
+    const geometry = previewGeometry(card.illustration, event.clientX, event.clientY);
+    setPreview({
+      illustration: card.illustration,
+      membership: card.membership,
+      ...geometry,
+    });
+  });
+
+  const handleCardMouseMove = useStableEvent((event, card) => {
+    if (gestureRef.current) return;
+    queuePreviewGeometry(previewGeometry(card.illustration, event.clientX, event.clientY));
+  });
+
+  const handleCardMouseLeave = useStableEvent((illustrationId) => {
+    cancelFrame(previewFrameRef.current);
+    previewFrameRef.current = null;
+    pendingPreviewGeometryRef.current = null;
+    setPreview((current) => (current?.illustration.id === illustrationId ? null : current));
+  });
+
+  const handleKeyboardSelect = useStableEvent((illustrationId) => {
+    setSelectedIds(new Set([illustrationId]));
+  });
 
   const manualTotal = Object.keys(manualAssignments || {}).length;
-  const previewMediaHeight = preview
-    ? getAspectFitPreviewHeight(
-      preview.illustration,
-      PREVIEW_MEDIA_WIDTH,
-      PREVIEW_MEDIA_MIN_HEIGHT,
-      PREVIEW_MEDIA_MAX_HEIGHT,
-    )
-    : 0;
-  const previewLeft = preview
-    ? Math.min(preview.clientX + 18, Math.max(12, window.innerWidth - 286))
-    : 0;
-  const previewTop = preview
-    ? Math.min(
-      preview.clientY + 18,
-      Math.max(12, window.innerHeight - previewMediaHeight - PREVIEW_CHROME_HEIGHT),
-    )
-    : 0;
 
   return (
     <motion.div
@@ -595,7 +962,7 @@ export default function ColorGroupBoard({
 
       <div
         ref={viewportRef}
-        className={`absolute inset-0 overflow-hidden select-none ${gestureRef.current?.type === 'pan' ? 'cursor-grabbing' : 'cursor-default'}`}
+        className="absolute inset-0 cursor-default overflow-hidden select-none"
         style={{
           backgroundColor: 'rgb(var(--clr-surface-1))',
           backgroundImage: 'radial-gradient(rgb(var(--clr-text-muted) / 0.2) 1px, transparent 1px)',
@@ -627,6 +994,7 @@ export default function ColorGroupBoard({
           </div>
         ) : (
           <div
+            ref={worldRef}
             className="absolute left-0 top-0 origin-top-left"
             style={{
               width: layout.worldWidth,
@@ -634,50 +1002,7 @@ export default function ColorGroupBoard({
               transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
             }}
           >
-            {layout.circles.map((circle) => {
-              const isTarget = dropTarget === circle.id;
-              return (
-                <div
-                  key={circle.id}
-                  className="pointer-events-none absolute rounded-full border-2 transition-[box-shadow,filter] duration-150"
-                  style={{
-                    left: circle.x - circle.radius,
-                    top: circle.y - circle.radius,
-                    width: circle.radius * 2,
-                    height: circle.radius * 2,
-                    backgroundColor: circle.color,
-                    borderColor: circle.borderColor,
-                    boxShadow: isTarget
-                      ? `0 0 0 10px ${circle.color}, 0 30px 80px rgb(var(--clr-overlay) / 0.18)`
-                      : '0 24px 70px rgb(var(--clr-overlay) / 0.08)',
-                    filter: isTarget ? 'saturate(1.2)' : undefined,
-                  }}
-                >
-                  <div
-                    className="absolute left-1/2 top-7 -translate-x-1/2 whitespace-nowrap rounded-2xl border bg-surface-secondary/92 px-4 py-2.5 shadow-lg shadow-overlay/10 backdrop-blur-xl"
-                    style={{ borderColor: circle.borderColor }}
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: circle.borderColor }} />
-                      <span className="max-w-[240px] truncate text-sm font-semibold text-content-primary">{circle.label}</span>
-                      <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[10px] tabular-nums text-content-muted">
-                        {circle.items.length}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-center gap-3 text-[9px] text-content-muted">
-                      <span className="flex items-center gap-1 text-accent">
-                        <Hand className="h-2.5 w-2.5" />
-                        {t('colorBoard.count.manual', { count: circle.manualCount })}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <InferenceIcon className="h-2.5 w-2.5" />
-                        {t('colorBoard.count.automatic', { count: circle.computedCount })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            <BoardCirclesLayer circles={layout.circles} dropTarget={dropTarget} />
 
             {layout.freeItems.length > 0 && (
               <div
@@ -694,101 +1019,39 @@ export default function ColorGroupBoard({
               </div>
             )}
 
-            {layout.cards.map((card) => {
-              const id = card.illustration.id;
-              const selected = selectedIds.has(id);
-              const dragging = draggingIds.has(id);
-              const membership = card.membership;
-              const sourceLabel = membership?.source === 'manual'
-                ? t('colorBoard.source.manual')
-                : membership?.source === 'computed'
-                  ? t('colorBoard.source.automatic')
-                  : t('colorBoard.source.other');
-              const SourceIcon = membership?.source === 'manual'
-                ? Hand
-                : membership?.source === 'computed' ? InferenceIcon : CircleDot;
-              return (
-                <button
-                  type="button"
-                  key={id}
-                  data-board-card
-                  aria-pressed={selected}
-                  aria-label={`${card.illustration.original_filename} · ${sourceLabel}`}
-                  className={`group/card absolute rounded-2xl border-2 bg-surface-secondary p-1 shadow-lg transition-[border-color,box-shadow,filter] focus:outline-none focus:ring-4 focus:ring-accent/30 ${
-                    selected
-                      ? 'border-accent shadow-xl shadow-accent/20'
-                      : 'border-surface-secondary hover:border-accent/45 hover:shadow-xl'
-                  } ${dragging ? 'z-20 cursor-grabbing' : 'z-10 cursor-grab'}`}
-                  style={{
-                    left: card.x,
-                    top: card.y,
-                    width: CARD_SIZE,
-                    height: CARD_SIZE,
-                    transform: dragging
-                      ? `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${card.rotation}deg) scale(1.05)`
-                      : `rotate(${card.rotation}deg)`,
-                    filter: dragging ? 'saturate(1.08)' : undefined,
-                  }}
-                  onPointerDown={(event) => handleCardPointerDown(event, card)}
-                  onPointerMove={handleCardPointerMove}
-                  onPointerUp={handleCardPointerUp}
-                  onPointerCancel={handleCardPointerCancel}
-                  onMouseEnter={(event) => {
-                    if (!gestureRef.current) setPreview({ illustration: card.illustration, membership, clientX: event.clientX, clientY: event.clientY });
-                  }}
-                  onMouseMove={(event) => {
-                    if (!gestureRef.current) setPreview({ illustration: card.illustration, membership, clientX: event.clientX, clientY: event.clientY });
-                  }}
-                  onMouseLeave={() => setPreview((current) => (current?.illustration.id === id ? null : current))}
-                  onClick={(event) => {
-                    if (event.detail !== 0) return;
-                    setSelectedIds(new Set([id]));
-                  }}
-                >
-                  <img
-                    src={backendUrl(`${card.illustration.thumbnail_url}?quality=${quality}`)}
-                    alt=""
-                    draggable="false"
-                    className="h-full w-full rounded-xl object-cover"
-                  />
-                  <span className={`absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full border border-surface-secondary text-white shadow-md ${
-                    membership?.source === 'manual' ? 'bg-accent' : 'bg-content-tertiary'
-                  }`} title={sourceLabel}>
-                    <SourceIcon className="h-2.5 w-2.5" />
-                  </span>
-                  {selected && (
-                    <span className="absolute -bottom-1 -left-1 grid h-5 w-5 place-items-center rounded-full border-2 border-surface-secondary bg-accent text-[10px] font-bold text-white shadow-md">
-                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            <BoardCardsLayer
+              cards={layout.cards}
+              selectedIds={selectedIds}
+              draggingIds={draggingIds}
+              onPointerDown={handleCardPointerDown}
+              onPointerMove={handleCardPointerMove}
+              onPointerUp={handleCardPointerUp}
+              onPointerCancel={handleCardPointerCancel}
+              onMouseEnter={handleCardMouseEnter}
+              onMouseMove={handleCardMouseMove}
+              onMouseLeave={handleCardMouseLeave}
+              onKeyboardSelect={handleKeyboardSelect}
+            />
 
-            {selectionRect && (
-              <div
-                className="pointer-events-none absolute z-30 rounded-lg border-2 border-accent bg-accent/10 shadow-[0_0_0_1px_rgb(var(--clr-surface-2)/0.8)]"
-                style={{
-                  left: selectionRect.left,
-                  top: selectionRect.top,
-                  width: selectionRect.width,
-                  height: selectionRect.height,
-                }}
-              />
-            )}
+            <div
+              ref={selectionRectRef}
+              hidden
+              className="pointer-events-none absolute z-30 rounded-lg border-2 border-accent bg-accent/10 shadow-[0_0_0_1px_rgb(var(--clr-surface-2)/0.8)]"
+            />
           </div>
         )}
       </div>
 
       {preview && (
         <div
+          ref={previewRef}
           className="pointer-events-none fixed z-50 w-64 overflow-hidden rounded-2xl border border-edge-primary bg-surface-secondary/95 p-2 shadow-2xl shadow-overlay/25 backdrop-blur-xl"
-          style={{ left: previewLeft, top: previewTop }}
+          style={{ left: preview.left, top: preview.top }}
         >
           <IllustrationPreviewImage
             illustration={preview.illustration}
-            quality={quality}
-            height={previewMediaHeight}
+            quality={BOARD_PREVIEW_QUALITY}
+            height={preview.mediaHeight}
           />
           <div className="flex items-center gap-2 px-1 pb-1 pt-2">
             <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
@@ -850,7 +1113,7 @@ export default function ColorGroupBoard({
       {selectedIds.size > 0 && !lastAction && !dropTarget && (
         <ColorBoardSelectionDock
           selectedIllustrations={selectedIllustrations}
-          quality={quality}
+          quality={BOARD_PREVIEW_QUALITY}
           resolveColorGroupName={resolveColorGroupName}
           onClear={() => setSelectedIds(new Set())}
           onDownload={onDownload}
@@ -859,7 +1122,7 @@ export default function ColorGroupBoard({
           tagPanelOpen={tagPanelOpen}
           onTagPanelChange={(open) => {
             setTagPanelOpen(open);
-            if (open) setPreview(null);
+            if (open) clearPreview();
           }}
         />
       )}

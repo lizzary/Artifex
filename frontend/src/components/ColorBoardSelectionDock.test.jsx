@@ -136,6 +136,7 @@ describe('ColorBoardSelectionDock', () => {
     const previewImage = screen.getByRole('img', { name: '1.png' });
     expect(previewImage).toHaveClass('object-contain');
     expect(previewImage.parentElement).toHaveStyle({ height: '320px' });
+    expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=normal');
     fireEvent.error(previewImage);
     expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
 

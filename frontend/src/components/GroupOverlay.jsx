@@ -534,7 +534,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
+      {!showColorBoard && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 border-b border-edge-primary px-4 py-3.5 shrink-0 sm:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -927,7 +928,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             </div>
           </motion.div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Group Config Modal */}
       <AnimatePresence>
@@ -947,7 +949,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             pairs={activeConfig.pairs}
             matchOrder={activeConfig.matchOrder}
             manualAssignments={activeConfig.manualAssignments}
-            quality={quality}
             onAssign={setManualGroupIds}
             onDownload={handleDownloadIllustrations}
             onDelete={handleDeleteIllustrations}
