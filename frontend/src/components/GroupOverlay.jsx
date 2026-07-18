@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag, Palette, Ratio } from 'lucide-react';
+import {
+  ArrowUpDown, ChevronLeft, ChevronRight, Download, ImagePlus, Layers, Loader2,
+  Monitor, Palette, Ratio, Settings, Tag, Trash2, Upload, X,
+} from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useOriginalRatio from '../hooks/useOriginalRatio';
 import useDownloadConfig from '../hooks/useDownloadConfig';
+import useIllustrationFileDrop from '../hooks/useIllustrationFileDrop';
 import {
   filterIllustrations,
   flattenVisibleGroups,
@@ -303,9 +307,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     }
   }, [addToast, clearSelection, conflictPolicy, fetchIllustrations, group.id, onGroupUpdated, t]);
 
-  const handleUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
+  const handleUploadFiles = useCallback(async (files) => {
+    if (uploading || pendingFiles || files.length === 0) return;
+    setUploading(true);
 
     // If auto-tag is disabled in Settings, skip model check and upload directly
     if (!autoTagEnabled) {
@@ -318,6 +322,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       const status = await checkModelStatus();
       if (!status.cached) {
         // Model not cached — store files and show download modal
+        setUploading(false);
         setPendingFiles(files);
         setShowModelModal(true);
         return;
@@ -328,7 +333,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
     // Model is cached — proceed directly
     await doUpload(files, false);
-  };
+  }, [autoTagEnabled, doUpload, pendingFiles, uploading]);
+
+  const handleUpload = useCallback((event) => {
+    const files = Array.from(event.target.files || []);
+    handleUploadFiles(files);
+  }, [handleUploadFiles]);
+
+  const handleRejectedUploadFiles = useCallback((files) => {
+    addToast(t('groupOverlay.upload.rejected', { count: files.length }), 'error');
+  }, [addToast, t]);
+
+  const { isDraggingFiles, dropTargetProps } = useIllustrationFileDrop({
+    onFiles: handleUploadFiles,
+    onRejected: handleRejectedUploadFiles,
+    disabled: uploading || showModelModal,
+  });
 
   const handleModelDownload = async () => {
     if (!pendingFiles) return;
@@ -533,7 +553,36 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   // ── Render ─────────────────────────────────────────────
 
   return (
-    <>
+    <div className="contents" {...dropTargetProps}>
+      <AnimatePresence>
+        {isDraggingFiles && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none fixed inset-3 z-[120] grid place-items-center rounded-3xl border-2 border-dashed border-accent bg-accent/10 shadow-[inset_0_0_80px_rgb(var(--clr-accent)/0.12)] backdrop-blur-sm sm:inset-6"
+            role="status"
+            aria-live="polite"
+          >
+            <motion.div
+              initial={{ y: 8, scale: 0.96 }}
+              animate={{ y: 0, scale: 1 }}
+              className="mx-5 max-w-md rounded-3xl border border-accent/35 bg-surface-secondary/95 px-8 py-7 text-center shadow-2xl shadow-accent/20"
+            >
+              <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent/15 text-accent">
+                <ImagePlus className="h-7 w-7" />
+              </span>
+              <p className="mt-4 text-base font-semibold text-content-primary">
+                {t('groupOverlay.upload.dropTitle')}
+              </p>
+              <p className="mt-1.5 text-sm leading-relaxed text-content-muted">
+                {t('groupOverlay.upload.dropBody')}
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {!showColorBoard && (
         <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
         {/* Header */}
@@ -955,6 +1004,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             onUpdateTags={handleUpdateIllustrationTags}
             onConfigure={() => setShowGroupConfig(true)}
             onClose={() => setShowColorBoard(false)}
+            uploading={uploading}
+            uploadProgress={uploadProgress}
           />
         )}
       </AnimatePresence>
@@ -1028,6 +1079,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
           }}
         />
       )}
-    </>
+    </div>
   );
 }

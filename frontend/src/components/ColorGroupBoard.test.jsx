@@ -32,7 +32,10 @@ const automaticTerm = (value) => ({
 });
 
 describe('color group board layout', () => {
-  beforeEach(() => localStorage.setItem('gallery-locale', 'en'));
+  beforeEach(() => {
+    localStorage.setItem('gallery-locale', 'en');
+    localStorage.removeItem('color-board-free-row-limit');
+  });
 
   test('places every illustration by effective group while keeping manual-only circles', () => {
     const pairs = [
@@ -58,6 +61,47 @@ describe('color group board layout', () => {
     ]);
     expect(layout.freeItems.map((item) => item.id)).toEqual([3]);
     expect(layout.cards).toHaveLength(3);
+  });
+
+  test('caps the Other row by both the user limit and responsive width', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const layout = buildColorBoardLayout(
+      Array.from({ length: 8 }, (_, index) => illustration(index + 1)),
+      [pair],
+      ['warm'],
+      {},
+      (index) => `Color group ${index}`,
+      { freeRowLimit: 12, maxFreeWidth: 286 },
+    );
+
+    expect(layout.freeColumns).toBe(3);
+    expect(layout.freeContentWidth).toBeLessThanOrEqual(286);
+    expect(layout.cards[3].x).toBe(layout.cards[0].x);
+    expect(layout.cards[3].y).toBeGreaterThan(layout.cards[0].y);
+  });
+
+  test('lets the user persist the maximum number of Other thumbnails per row', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    render(
+      <LocaleProvider>
+        <ColorGroupBoard
+          groupName="Studio"
+          illustrations={[illustration(1)]}
+          pairs={[pair]}
+          matchOrder={['warm']}
+          manualAssignments={{}}
+          onAssign={jest.fn()}
+          onConfigure={jest.fn()}
+          onClose={jest.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    const rowLimit = screen.getByRole('slider', { name: 'Maximum thumbnails per row' });
+    expect(rowLimit).toHaveValue('10');
+    fireEvent.change(rowLimit, { target: { value: '16' } });
+    expect(rowLimit).toHaveValue('16');
+    expect(localStorage.getItem('color-board-free-row-limit')).toBe('16');
   });
 
   test('opens color-group configuration from the empty-board action', () => {
@@ -118,5 +162,34 @@ describe('color group board layout', () => {
     expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=normal');
     fireEvent.error(previewImage);
     expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
+  });
+
+  test('zooms with the wheel and clamps the board between 50% and 200%', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const { container } = render(
+      <LocaleProvider>
+        <ColorGroupBoard
+          groupName="Studio"
+          illustrations={[illustration(1, 'warm')]}
+          pairs={[pair]}
+          matchOrder={['warm']}
+          manualAssignments={{}}
+          onAssign={jest.fn()}
+          onConfigure={jest.fn()}
+          onClose={jest.fn()}
+        />
+      </LocaleProvider>,
+    );
+    const viewport = container.querySelector('[data-color-board-viewport]');
+
+    for (let index = 0; index < 30; index += 1) {
+      fireEvent.wheel(viewport, { deltaY: -120, clientX: 500, clientY: 300 });
+    }
+    expect(screen.getByText('200%')).toBeInTheDocument();
+
+    for (let index = 0; index < 60; index += 1) {
+      fireEvent.wheel(viewport, { deltaY: 120, clientX: 500, clientY: 300 });
+    }
+    expect(screen.getByText('50%')).toBeInTheDocument();
   });
 });

@@ -3,8 +3,8 @@ import {
 } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Check, CircleDot, Focus, Hand, Layers3, Minus, MousePointer2, Move, Palette,
-  Plus, Settings2, X,
+  Check, CircleDot, Focus, Hand, Layers3, Loader2, Minus, MousePointer2, Move,
+  Palette, Plus, Settings2, X,
 } from 'lucide-react';
 import { backendUrl } from '../api/url';
 import { useLocale } from '../contexts/LocaleContext';
@@ -17,14 +17,34 @@ import InferenceIcon from './InferenceIcon';
 const CARD_SIZE = 78;
 const CIRCLE_GAP = 150;
 const WORLD_MARGIN = 180;
-const MIN_SCALE = 0.24;
-const MAX_SCALE = 1.25;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 2;
+const FREE_CARD_COLUMN_GAP = 26;
+const FREE_CARD_ROW_GAP = 28;
+const FREE_ROW_LIMIT_STORAGE_KEY = 'color-board-free-row-limit';
+const FREE_ROW_LIMIT_MIN = 1;
+const FREE_ROW_LIMIT_MAX = 20;
+const FREE_ROW_LIMIT_DEFAULT = 10;
+const FREE_GRID_VIEWPORT_RATIO = 0.8;
 const PREVIEW_MEDIA_WIDTH = 240;
 const PREVIEW_MEDIA_MIN_HEIGHT = 80;
 const PREVIEW_MEDIA_MAX_HEIGHT = 360;
 const PREVIEW_CHROME_HEIGHT = 64;
 const BOARD_CARD_QUALITY = 'low';
 const BOARD_PREVIEW_QUALITY = 'normal';
+
+function readFreeRowLimit() {
+  try {
+    const stored = localStorage.getItem(FREE_ROW_LIMIT_STORAGE_KEY);
+    if (stored != null) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed)) {
+        return clamp(Math.round(parsed), FREE_ROW_LIMIT_MIN, FREE_ROW_LIMIT_MAX);
+      }
+    }
+  } catch {}
+  return FREE_ROW_LIMIT_DEFAULT;
+}
 
 function requestFrame(callback) {
   if (typeof window.requestAnimationFrame === 'function') {
@@ -261,6 +281,7 @@ export function buildColorBoardLayout(
   matchOrder,
   manualAssignments,
   untitledLabel,
+  options = {},
 ) {
   const memberships = getIllustrationMemberships(
     illustrations,
@@ -336,13 +357,29 @@ export function buildColorBoardLayout(
     : WORLD_MARGIN + 240;
   const minimumWorldWidth = Math.max(widestRow, 1500);
   const freeTop = circleBottom + 210;
-  const freeColumns = Math.max(6, Math.floor((minimumWorldWidth - WORLD_MARGIN * 2) / (CARD_SIZE + 26)));
+  const requestedFreeColumns = clamp(
+    Math.round(Number(options.freeRowLimit) || FREE_ROW_LIMIT_DEFAULT),
+    FREE_ROW_LIMIT_MIN,
+    FREE_ROW_LIMIT_MAX,
+  );
+  const requestedMaxFreeWidth = Number(options.maxFreeWidth);
+  const maxFreeWidth = Number.isFinite(requestedMaxFreeWidth)
+    ? Math.max(CARD_SIZE, requestedMaxFreeWidth)
+    : Number.POSITIVE_INFINITY;
+  const freeColumnStride = CARD_SIZE + FREE_CARD_COLUMN_GAP;
+  const responsiveFreeColumns = Number.isFinite(maxFreeWidth)
+    ? Math.max(1, Math.floor((maxFreeWidth - CARD_SIZE) / freeColumnStride) + 1)
+    : requestedFreeColumns;
+  const freeColumns = Math.min(requestedFreeColumns, responsiveFreeColumns);
+  const freeContentWidth = CARD_SIZE + Math.max(0, freeColumns - 1) * freeColumnStride;
+  const worldWidth = Math.max(minimumWorldWidth, freeContentWidth + WORLD_MARGIN * 2);
+  const freeLeft = (worldWidth - freeContentWidth) / 2;
   freeItems.forEach((illustration, index) => {
     cards.push({
       illustration,
       membership: memberships.get(illustration.id),
-      x: WORLD_MARGIN + (index % freeColumns) * (CARD_SIZE + 26),
-      y: freeTop + Math.floor(index / freeColumns) * (CARD_SIZE + 28),
+      x: freeLeft + (index % freeColumns) * freeColumnStride,
+      y: freeTop + Math.floor(index / freeColumns) * (CARD_SIZE + FREE_CARD_ROW_GAP),
       rotation: ((Number(illustration.id) || index) % 7) - 3,
     });
   });
@@ -350,16 +387,19 @@ export function buildColorBoardLayout(
   const freeRows = Math.ceil(freeItems.length / freeColumns);
   const worldHeight = Math.max(
     circleBottom + 360,
-    freeTop + Math.max(1, freeRows) * (CARD_SIZE + 28) + WORLD_MARGIN,
+    freeTop + Math.max(1, freeRows) * (CARD_SIZE + FREE_CARD_ROW_GAP) + WORLD_MARGIN,
   );
 
   return {
     cards,
     circles,
     freeItems,
+    freeColumns,
+    freeContentWidth,
+    freeLeft,
     freeTop,
     memberships,
-    worldWidth: minimumWorldWidth,
+    worldWidth,
     worldHeight,
   };
 }
@@ -376,6 +416,8 @@ export default function ColorGroupBoard({
   onUpdateTags,
   onConfigure,
   onClose,
+  uploading = false,
+  uploadProgress = null,
 }) {
   const { t } = useLocale();
   const viewportRef = useRef(null);
@@ -384,6 +426,7 @@ export default function ColorGroupBoard({
   const previewRef = useRef(null);
   const gestureRef = useRef(null);
   const didFitRef = useRef(false);
+  const layoutWidthRef = useRef(null);
   const initialView = { x: 0, y: 0, scale: 0.72 };
   const viewRef = useRef(initialView);
   const viewFrameRef = useRef(null);
@@ -399,6 +442,36 @@ export default function ColorGroupBoard({
   const [dropTarget, setDropTarget] = useState(null);
   const [lastAction, setLastAction] = useState('');
   const [tagPanelOpen, setTagPanelOpen] = useState(false);
+  const [freeRowLimit, setFreeRowLimitState] = useState(readFreeRowLimit);
+  const [viewportWidth, setViewportWidth] = useState(() => (
+    typeof window === 'undefined' ? 1280 : window.innerWidth || 1280
+  ));
+
+  const setFreeRowLimit = useCallback((value) => {
+    const nextValue = clamp(
+      Math.round(Number(value) || FREE_ROW_LIMIT_DEFAULT),
+      FREE_ROW_LIMIT_MIN,
+      FREE_ROW_LIMIT_MAX,
+    );
+    setFreeRowLimitState(nextValue);
+    try { localStorage.setItem(FREE_ROW_LIMIT_STORAGE_KEY, String(nextValue)); } catch {}
+  }, []);
+
+  const availableFreeWidth = Math.max(
+    CARD_SIZE,
+    (viewportWidth * FREE_GRID_VIEWPORT_RATIO) / view.scale,
+  );
+  const responsiveFreeColumnLimit = Math.min(
+    freeRowLimit,
+    Math.max(
+      1,
+      Math.floor(
+        (availableFreeWidth - CARD_SIZE) / (CARD_SIZE + FREE_CARD_COLUMN_GAP),
+      ) + 1,
+    ),
+  );
+  const maxFreeWidth = CARD_SIZE
+    + Math.max(0, responsiveFreeColumnLimit - 1) * (CARD_SIZE + FREE_CARD_COLUMN_GAP);
 
   const layout = useMemo(() => buildColorBoardLayout(
     illustrations,
@@ -406,12 +479,22 @@ export default function ColorGroupBoard({
     matchOrder,
     manualAssignments,
     (index) => t('colorBoard.untitledGroup', { n: index }),
-  ), [illustrations, pairs, matchOrder, manualAssignments, t]);
+    { freeRowLimit, maxFreeWidth },
+  ), [
+    freeRowLimit,
+    illustrations,
+    manualAssignments,
+    matchOrder,
+    maxFreeWidth,
+    pairs,
+    t,
+  ]);
 
   const circleById = useMemo(
     () => new Map(layout.circles.map((circle) => [circle.id, circle])),
     [layout.circles],
   );
+
   const selectedIllustrations = useMemo(
     () => illustrations.filter((illustration) => selectedIds.has(illustration.id)),
     [illustrations, selectedIds],
@@ -434,6 +517,19 @@ export default function ColorGroupBoard({
     applyWorldTransform(nextView);
     setView(nextView);
   }, [applyWorldTransform]);
+
+  useEffect(() => {
+    const previousWidth = layoutWidthRef.current;
+    layoutWidthRef.current = layout.worldWidth;
+    if (previousWidth == null || previousWidth === layout.worldWidth) return;
+
+    const current = viewRef.current;
+    const previousCenterX = current.x + previousWidth * current.scale / 2;
+    commitView({
+      ...current,
+      x: previousCenterX - layout.worldWidth * current.scale / 2,
+    });
+  }, [commitView, layout.worldWidth]);
 
   const queueViewTransform = useCallback((nextView) => {
     viewRef.current = nextView;
@@ -529,25 +625,30 @@ export default function ColorGroupBoard({
   const fitToView = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
+    const width = rect.width || window.innerWidth;
+    const height = rect.height || window.innerHeight;
+    setViewportWidth(width);
     const scale = clamp(
-      Math.min((rect.width - 120) / layout.worldWidth, (rect.height - 120) / layout.worldHeight),
+      Math.min((width - 120) / layout.worldWidth, (height - 120) / layout.worldHeight),
       MIN_SCALE,
       1,
     );
     commitView({
       scale,
-      x: (rect.width - layout.worldWidth * scale) / 2,
-      y: (rect.height - layout.worldHeight * scale) / 2,
+      x: (width - layout.worldWidth * scale) / 2,
+      y: (height - layout.worldHeight * scale) / 2,
     });
   }, [commitView, layout.worldHeight, layout.worldWidth]);
 
   const focusInitialView = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const scale = rect.width < 900 ? 0.58 : 0.72;
+    const width = rect.width || window.innerWidth;
+    setViewportWidth(width);
+    const scale = width < 900 ? 0.58 : 0.72;
     commitView({
       scale,
-      x: (rect.width - layout.worldWidth * scale) / 2,
+      x: (width - layout.worldWidth * scale) / 2,
       y: 96 - WORLD_MARGIN * scale,
     });
   }, [commitView, layout.worldWidth]);
@@ -605,22 +706,52 @@ export default function ColorGroupBoard({
     return () => window.clearTimeout(timeout);
   }, [lastAction]);
 
-  const zoomTo = useCallback((nextScale) => {
+  const zoomAt = useCallback((nextScale, clientX, clientY) => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
     const previous = viewRef.current;
     const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
-    const center = { x: rect.width / 2, y: rect.height / 2 };
-    const worldCenter = {
-      x: (center.x - previous.x) / previous.scale,
-      y: (center.y - previous.y) / previous.scale,
+    const width = rect.width || window.innerWidth;
+    const height = rect.height || window.innerHeight;
+    const anchor = {
+      x: Number.isFinite(clientX) ? clientX - rect.left : width / 2,
+      y: Number.isFinite(clientY) ? clientY - rect.top : height / 2,
+    };
+    const worldAnchor = {
+      x: (anchor.x - previous.x) / previous.scale,
+      y: (anchor.y - previous.y) / previous.scale,
     };
     commitView({
       scale,
-      x: center.x - worldCenter.x * scale,
-      y: center.y - worldCenter.y * scale,
+      x: anchor.x - worldAnchor.x * scale,
+      y: anchor.y - worldAnchor.y * scale,
     });
   }, [commitView]);
+
+  const zoomTo = useCallback((nextScale) => {
+    zoomAt(nextScale);
+  }, [zoomAt]);
+
+  const handleViewportWheel = useStableEvent((event) => {
+    if (event.target.closest?.('[data-board-control]')) return;
+    event.preventDefault();
+    if (!event.deltaY) return;
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const pageHeight = rect?.height || window.innerHeight;
+    const pixelDelta = event.deltaMode === 1
+      ? event.deltaY * 16
+      : event.deltaMode === 2 ? event.deltaY * pageHeight : event.deltaY;
+    const boundedDelta = clamp(pixelDelta, -120, 120);
+    const nextScale = viewRef.current.scale * Math.exp(-boundedDelta * 0.0016);
+    zoomAt(nextScale, event.clientX, event.clientY);
+  });
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    viewport.addEventListener('wheel', handleViewportWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleViewportWheel);
+  }, [handleViewportWheel]);
 
   const applyMarqueeSelection = useStableEvent((gesture, current) => {
     const rect = rectFromPoints(gesture.start, current);
@@ -919,6 +1050,22 @@ export default function ColorGroupBoard({
             {t('colorBoard.summary', { groups: pairs.length, illustrations: illustrations.length, manual: manualTotal })}
           </span>
 
+          {uploading && (
+            <span
+              className="hidden shrink-0 items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-[10px] font-medium text-accent md:flex"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {uploadProgress
+                ? t('groupOverlay.upload.progress', {
+                  current: uploadProgress.current,
+                  total: uploadProgress.total,
+                })
+                : t('groupOverlay.upload.uploading')}
+            </span>
+          )}
+
           <button
             type="button"
             onClick={onConfigure}
@@ -962,6 +1109,7 @@ export default function ColorGroupBoard({
 
       <div
         ref={viewportRef}
+        data-color-board-viewport
         className="absolute inset-0 cursor-default overflow-hidden select-none"
         style={{
           backgroundColor: 'rgb(var(--clr-surface-1))',
@@ -1006,16 +1154,39 @@ export default function ColorGroupBoard({
 
             {layout.freeItems.length > 0 && (
               <div
-                className="pointer-events-none absolute flex items-center gap-3"
-                style={{ left: WORLD_MARGIN, top: layout.freeTop - 76 }}
+                data-board-control
+                className="absolute flex items-center gap-3"
+                style={{ left: layout.freeLeft, top: layout.freeTop - 82 }}
               >
-                <span className="grid h-10 w-10 place-items-center rounded-2xl border border-edge-primary bg-surface-secondary/90 text-content-muted shadow-sm backdrop-blur">
+                <span className="pointer-events-none grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-edge-primary bg-surface-secondary/90 text-content-muted shadow-sm backdrop-blur">
                   <MousePointer2 className="h-4 w-4" />
                 </span>
-                <div>
+                <div className="pointer-events-none shrink-0">
                   <p className="text-xs font-semibold text-content-secondary">{t('colorBoard.free.title')}</p>
                   <p className="mt-0.5 text-[10px] text-content-muted">{t('colorBoard.free.body')}</p>
                 </div>
+                <label
+                  className="ml-2 flex shrink-0 items-center gap-2 rounded-xl border border-edge-primary bg-surface-secondary/90 px-3 py-2 shadow-sm backdrop-blur"
+                  title={t('colorBoard.free.rowLimitHint')}
+                >
+                  <span className="whitespace-nowrap text-[10px] font-medium text-content-secondary">
+                    {t('colorBoard.free.rowLimit', { count: freeRowLimit })}
+                  </span>
+                  <input
+                    type="range"
+                    min={FREE_ROW_LIMIT_MIN}
+                    max={FREE_ROW_LIMIT_MAX}
+                    value={freeRowLimit}
+                    onChange={(event) => setFreeRowLimit(event.target.value)}
+                    aria-label={t('colorBoard.free.rowLimitLabel')}
+                    className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-edge-secondary accent-accent"
+                  />
+                  {layout.freeColumns < freeRowLimit && (
+                    <span className="whitespace-nowrap rounded-full bg-surface-tertiary px-1.5 py-0.5 text-[9px] tabular-nums text-content-muted">
+                      {t('colorBoard.free.currentColumns', { count: layout.freeColumns })}
+                    </span>
+                  )}
+                </label>
               </div>
             )}
 
