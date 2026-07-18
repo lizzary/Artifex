@@ -65,13 +65,14 @@ func NewServer(cfg ServerConfig) *Server {
 		// Illustrations
 		r.Get("/groups/{groupId}/illustrations", s.ListIllustrations)
 		r.Post("/groups/{groupId}/illustrations/upload", s.UploadIllustrations)
+		r.Post("/illustrations/tags", s.UpdateIllustrationTags)
+		r.Post("/illustrations/retag", s.RetagIllustrations)
 		r.Get("/illustrations/{illustrationId}", s.GetIllustration)
 		r.Put("/illustrations/{illustrationId}", s.UpdateIllustration)
 		r.Delete("/illustrations/{illustrationId}", s.DeleteIllustration)
 		r.Get("/illustrations/{illustrationId}/file", s.ServeIllustrationFile)
 		r.Get("/illustrations/{illustrationId}/thumbnail", s.ServeIllustrationThumbnail)
 		r.Get("/illustrations/{illustrationId}/metadata", s.GetIllustrationMetadata)
-		r.Post("/illustrations/retag", s.RetagIllustrations)
 
 		// Search
 		r.Get("/search", s.SearchIllustrations)

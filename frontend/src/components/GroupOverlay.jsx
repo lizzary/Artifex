@@ -1,10 +1,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag, Palette } from 'lucide-react';
+import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag, Palette, Ratio } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
-import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
-import { listAllIllustrations, uploadSingleIllustration, updateGroup, deleteIllustration, checkModelStatus, downloadModel, getSettings, retagIllustrations } from '../api';
+import useOriginalRatio from '../hooks/useOriginalRatio';
+import useDownloadConfig from '../hooks/useDownloadConfig';
+import {
+  checkModelStatus, deleteIllustration, deleteIllustrations as deleteIllustrationBatch,
+  downloadModel, getSettings, listAllIllustrations, retagIllustrations,
+  updateGroup, updateIllustrationTags, uploadSingleIllustration,
+} from '../api';
 import { useToast } from './Toast';
 import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
@@ -17,6 +22,7 @@ import ColorGroupBoard from './ColorGroupBoard';
 import ModelDownloadModal from './ModelDownloadModal';
 import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig from '../hooks/useGroupConfig';
+import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { groupIllustrations, paginateIllustrationGroups } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
 
@@ -56,6 +62,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const { addToast } = useToast();
   const [quality, setQuality] = useQuality();
   const [cardSize, setCardSize, cardSizeGrid] = useCardSize();
+  const [preserveAspectRatio, setPreserveAspectRatio] = useOriginalRatio();
   const { format } = useDownloadConfig();
   const { t } = useLocale();
 
@@ -92,6 +99,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   const groupScope = `group_${group.id}`;
   const activeConfig = useGroupConfig('mixed', groupScope);
+  const setManualGroupIds = activeConfig.setManualGroupIds;
 
   const fetchIllustrations = useCallback(async () => {
     try {
@@ -392,27 +400,37 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     }
   };
 
+  const handleDeleteIllustrations = useCallback(async (ids) => {
+    const result = await deleteIllustrationBatch(ids);
+    const deletedSet = new Set(result.deleted);
+
+    if (deletedSet.size > 0) {
+      setIllustrations((previous) => previous.filter((item) => !deletedSet.has(item.id)));
+      setTotalCount((previous) => Math.max(0, previous - deletedSet.size));
+      setSelectedIds((previous) => new Set([...previous].filter((id) => !deletedSet.has(id))));
+      setManualGroupIds(result.deleted, null);
+      if (onGroupUpdated) onGroupUpdated();
+    }
+    setLastClickedId(null);
+
+    if (result.failed.length === 0) {
+      addToast(t('groupOverlay.toast.batchDeleted', { n: result.deleted.length }), 'success');
+    } else {
+      addToast(t('groupOverlay.toast.batchPartial', {
+        succeeded: result.deleted.length,
+        failed: result.failed.length,
+      }), 'error');
+    }
+    return result;
+  }, [addToast, onGroupUpdated, setManualGroupIds, t]);
+
   const handleBatchDelete = async () => {
     setBatchDeleting(true);
-    const ids = [...selectedIds];
-    let failed = 0;
-    for (const id of ids) {
-      try {
-        await deleteIllustration(id);
-      } catch {
-        failed++;
-      }
+    try {
+      await handleDeleteIllustrations([...selectedIds]);
+    } finally {
+      setBatchDeleting(false);
     }
-    setBatchDeleting(false);
-    setSelectedIds(new Set());
-    setLastClickedId(null);
-    if (failed === 0) {
-      addToast(t('groupOverlay.toast.batchDeleted', { n: ids.length }), 'success');
-    } else {
-      addToast(t('groupOverlay.toast.batchPartial', { succeeded: ids.length - failed, failed }), 'error');
-    }
-    await fetchIllustrations();
-    if (onGroupUpdated) onGroupUpdated();
   };
 
   const handleBatchRetag = async () => {
@@ -457,32 +475,41 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     }
   };
 
-  const handleBatchDownload = async () => {
-    const selected = illustrations.filter((i) => selectedIds.has(i.id));
-    if (selected.length === 0) return;
+  const handleDownloadIllustrations = useCallback(async (selected) => {
+    if (selected.length === 0) return { downloaded: [], failed: [] };
     addToast(t('groupOverlay.toast.downloading', { n: selected.length }), 'success');
-    for (const ill of selected) {
-      try {
-        const res = await fetch(ill.file_url);
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        try {
-          a.download = resolveFilename(format, ill);
-        } catch {
-          a.download = ill.original_filename;
-        }
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch {
-        // continue to next file on error
-      }
+    const result = await downloadIllustrations(selected, format);
+    if (result.failed.length > 0) {
+      addToast(t('colorBoard.toast.downloadPartial', {
+        succeeded: result.downloaded.length,
+        failed: result.failed.length,
+      }), 'error');
     }
-  };
+    return result;
+  }, [addToast, format, t]);
+
+  const handleBatchDownload = () => handleDownloadIllustrations(
+    illustrations.filter((illustration) => selectedIds.has(illustration.id)),
+  );
+
+  const handleUpdateIllustrationTags = useCallback(async (ids, operation, tags) => {
+    try {
+      const result = await updateIllustrationTags(ids, operation, tags);
+      const updatedById = new Map((result.updated || []).map((item) => [item.id, item]));
+      setIllustrations((previous) => previous.map((item) => updatedById.get(item.id) || item));
+      addToast(t(
+        operation === 'add' ? 'colorBoard.toast.tagsAdded' : 'colorBoard.toast.tagsRemoved',
+        { count: result.updated?.length || 0, tags: tags.join(', ') },
+      ), 'success');
+      if (result.missing?.length > 0) {
+        addToast(t('colorBoard.toast.tagsPartial', { failed: result.missing.length }), 'error');
+      }
+      return result;
+    } catch (error) {
+      addToast(error.message || t('colorBoard.toast.tagsFailed'), 'error');
+      throw error;
+    }
+  }, [addToast, t]);
 
   const handleCardClick = (ill) => {
     setSelectedIds(new Set());
@@ -548,7 +575,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     isSelected: selectedIds.has(ill.id),
     showHoverActions: true,
     quality,
-  }), [selectedIds, lastClickedId, displayedIllustrations, quality]);
+    preserveAspectRatio,
+  }), [selectedIds, lastClickedId, displayedIllustrations, quality, preserveAspectRatio]);
 
   // ── Render ─────────────────────────────────────────────
 
@@ -676,6 +704,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                   [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer
                   accent-accent"
               />
+              <span className="h-4 w-px bg-edge-primary" />
+              <button
+                type="button"
+                onClick={() => setPreserveAspectRatio(!preserveAspectRatio)}
+                aria-pressed={preserveAspectRatio}
+                aria-label={t('groupOverlay.originalRatio.hint')}
+                title={t('groupOverlay.originalRatio.hint')}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[10px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+                  preserveAspectRatio
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-content-muted hover:bg-surface-secondary hover:text-content-primary'
+                }`}
+              >
+                <Ratio className="h-3.5 w-3.5" />
+                <span className="hidden whitespace-nowrap xl:inline">{t('groupOverlay.originalRatio.label')}</span>
+              </button>
             </div>
 
             <button
@@ -861,7 +905,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             </div>
           ) : (
             /* Flat grid (no grouping) */
-            <div className={`grid ${cardSizeGrid} gap-4`}>
+            <div className={`grid items-start ${cardSizeGrid} gap-4`}>
               <AnimatePresence mode="popLayout">
                 {paginatedIllustrations.map((ill) => (
                   <IllustrationCard {...cardProps(ill)} />
@@ -949,7 +993,10 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             matchOrder={activeConfig.matchOrder}
             manualAssignments={activeConfig.manualAssignments}
             quality={quality}
-            onAssign={activeConfig.setManualGroupIds}
+            onAssign={setManualGroupIds}
+            onDownload={handleDownloadIllustrations}
+            onDelete={handleDeleteIllustrations}
+            onUpdateTags={handleUpdateIllustrationTags}
             onConfigure={() => setShowGroupConfig(true)}
             onClose={() => setShowColorBoard(false)}
           />

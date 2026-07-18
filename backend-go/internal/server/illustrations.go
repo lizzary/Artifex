@@ -386,6 +386,81 @@ func (s *Server) UpdateIllustration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, updated)
 }
 
+// ── Batch Illustration Tags ─────────────────────────────────────────────
+
+// UpdateIllustrationTags adds or removes tags for a reusable batch of illustrations.
+// Body: { "ids": [int, ...], "operation": "add"|"remove", "tags": [string, ...] }.
+func (s *Server) UpdateIllustrationTags(w http.ResponseWriter, r *http.Request) {
+	var body models.IllustrationTagsRequest
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeError(w, 400, "Invalid request body")
+		return
+	}
+
+	ids := uniquePositiveIDs(body.IDs)
+	tags := normalizeRequestedTags(body.Tags)
+	operation := strings.ToLower(strings.TrimSpace(body.Operation))
+	if len(ids) == 0 || len(tags) == 0 {
+		writeError(w, 400, "Illustration ids and tags are required")
+		return
+	}
+	if operation != "add" && operation != "remove" {
+		writeError(w, 400, "Operation must be add or remove")
+		return
+	}
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, 500, "Failed to start tag update")
+		return
+	}
+	defer tx.Rollback()
+
+	updatedIDs := make([]int, 0, len(ids))
+	missing := make([]int, 0)
+	for _, illID := range ids {
+		var current sql.NullString
+		err := tx.QueryRow("SELECT tags FROM illustrations WHERE id = ?", illID).Scan(&current)
+		if err == sql.ErrNoRows {
+			missing = append(missing, illID)
+			continue
+		}
+		if err != nil {
+			writeError(w, 500, "Failed to read illustration tags")
+			return
+		}
+
+		next := mutateStoredTags(current.String, tags, operation)
+		if _, err := tx.Exec("UPDATE illustrations SET tags = ? WHERE id = ?", next, illID); err != nil {
+			writeError(w, 500, "Failed to update illustration tags")
+			return
+		}
+		updatedIDs = append(updatedIDs, illID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, 500, "Failed to save illustration tags")
+		return
+	}
+
+	result := models.IllustrationTagsResult{
+		Updated: make([]models.IllustrationResponse, 0, len(updatedIDs)),
+		Missing: missing,
+	}
+	for _, illID := range updatedIDs {
+		row := db.QueryRow(`
+			SELECT i.*, g.name AS group_name
+			FROM illustrations i JOIN groups g ON i.group_id = g.id
+			WHERE i.id = ?
+		`, illID)
+		if item := scanIllustrationRow(row); item != nil {
+			result.Updated = append(result.Updated, *item)
+		}
+	}
+
+	writeJSON(w, 200, result)
+}
+
 // ── Delete Illustration ──────────────────────────────────────────────────
 
 func (s *Server) DeleteIllustration(w http.ResponseWriter, r *http.Request) {
@@ -662,6 +737,66 @@ func (s *Server) GetIllustrationMetadata(w http.ResponseWriter, r *http.Request)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+func uniquePositiveIDs(ids []int) []int {
+	seen := make(map[int]bool, len(ids))
+	result := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+	return result
+}
+
+func normalizeRequestedTags(values []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
+		for _, part := range parts {
+			tag := strings.TrimSpace(part)
+			key := strings.ToLower(tag)
+			if tag == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, tag)
+		}
+	}
+	return result
+}
+
+func mutateStoredTags(current string, requested []string, operation string) string {
+	existing := normalizeRequestedTags([]string{current})
+	requestedKeys := make(map[string]bool, len(requested))
+	for _, tag := range requested {
+		requestedKeys[strings.ToLower(tag)] = true
+	}
+
+	if operation == "add" {
+		for _, tag := range existing {
+			delete(requestedKeys, strings.ToLower(tag))
+		}
+		for _, tag := range requested {
+			if requestedKeys[strings.ToLower(tag)] {
+				existing = append(existing, tag)
+				delete(requestedKeys, strings.ToLower(tag))
+			}
+		}
+		return strings.Join(existing, ", ")
+	}
+
+	kept := make([]string, 0, len(existing))
+	for _, tag := range existing {
+		if !requestedKeys[strings.ToLower(tag)] {
+			kept = append(kept, tag)
+		}
+	}
+	return strings.Join(kept, ", ")
+}
 
 func (s *Server) ensureUploadDirs(groupID int) {
 	baseDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))

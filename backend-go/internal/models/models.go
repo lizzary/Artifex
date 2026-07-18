@@ -43,6 +43,17 @@ type IllustrationUpdate struct {
 	Tags *string `json:"tags,omitempty"`
 }
 
+type IllustrationTagsRequest struct {
+	IDs       []int    `json:"ids"`
+	Operation string   `json:"operation"`
+	Tags      []string `json:"tags"`
+}
+
+type IllustrationTagsResult struct {
+	Updated []IllustrationResponse `json:"updated"`
+	Missing []int                  `json:"missing"`
+}
+
 type IllustrationListResult struct {
 	Items  []IllustrationResponse `json:"items"`
 	Total  int                    `json:"total"`

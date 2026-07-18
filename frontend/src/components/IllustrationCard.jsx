@@ -14,9 +14,15 @@ export default function IllustrationCard({
   isSelected = false,
   showHoverActions = true,
   quality = 'low',
+  preserveAspectRatio = false,
 }) {
   const [imgError, setImgError] = useState(false);
   const { t } = useLocale();
+  const sourceWidth = Number(illustration.width);
+  const sourceHeight = Number(illustration.height);
+  const aspectRatio = sourceWidth > 0 && sourceHeight > 0
+    ? `${sourceWidth} / ${sourceHeight}`
+    : '1 / 1';
 
   const handleClick = (e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -37,9 +43,9 @@ export default function IllustrationCard({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
       transition={{ duration: 0.2, ease: 'easeOut' }}
-      className={`group relative bg-surface-secondary rounded-lg border overflow-hidden transition-colors ${
+      className={`group relative overflow-hidden rounded-lg border bg-surface-secondary align-top transition-colors ${
         isSelected ? 'border-accent ring-2 ring-accent/40' : 'border-edge-primary hover:border-accent/40'
-      }`}
+      } ${preserveAspectRatio ? 'w-full self-start' : ''}`}
     >
       {/* Selection indicator */}
       {isSelected && (
@@ -52,7 +58,8 @@ export default function IllustrationCard({
 
       {/* Thumbnail */}
       <div
-        className="aspect-square bg-surface-tertiary flex items-center justify-center overflow-hidden cursor-pointer"
+        className={`${preserveAspectRatio ? 'illustration-original-ratio' : 'aspect-square'} flex cursor-pointer items-center justify-center overflow-hidden bg-surface-tertiary`}
+        style={preserveAspectRatio ? { '--illustration-aspect-ratio': aspectRatio } : undefined}
         onClick={handleClick}
       >
         {imgError ? (
@@ -62,8 +69,10 @@ export default function IllustrationCard({
             src={backendUrl(`${illustration.thumbnail_url}?quality=${quality}`)}
             alt={illustration.original_filename}
             onError={() => setImgError(true)}
-            className={`w-full h-full object-cover transition-transform duration-200 ${
-              showHoverActions ? 'group-hover:scale-105' : ''
+            className={`h-full w-full transition-transform duration-200 ${
+              preserveAspectRatio ? 'object-contain' : 'object-cover'
+            } ${
+              showHoverActions && !preserveAspectRatio ? 'group-hover:scale-105' : ''
             }`}
           />
         )}

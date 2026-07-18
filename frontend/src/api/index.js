@@ -114,6 +114,28 @@ export function deleteIllustration(illustrationId) {
   return request(`/api/illustrations/${illustrationId}`, { method: 'DELETE' });
 }
 
+export async function deleteIllustrations(illustrationIds) {
+  const ids = [...new Set(illustrationIds || [])];
+  const result = { deleted: [], failed: [] };
+  for (const id of ids) {
+    try {
+      await deleteIllustration(id);
+      result.deleted.push(id);
+    } catch {
+      result.failed.push(id);
+    }
+  }
+  return result;
+}
+
+export function updateIllustrationTags(illustrationIds, operation, tags) {
+  return request('/api/illustrations/tags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: illustrationIds, operation, tags }),
+  });
+}
+
 export function getIllustrationMetadata(illustrationId) {
   return request(`/api/illustrations/${illustrationId}/metadata`);
 }

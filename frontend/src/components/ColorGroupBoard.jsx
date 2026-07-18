@@ -9,6 +9,8 @@ import {
 import { backendUrl } from '../api/url';
 import { useLocale } from '../contexts/LocaleContext';
 import { getIllustrationMemberships, groupDisplayName } from '../utils/grouping';
+import { getAspectFitPreviewHeight } from '../utils/illustrationPreview';
+import ColorBoardSelectionDock from './ColorBoardSelectionDock';
 import InferenceIcon from './InferenceIcon';
 
 const CARD_SIZE = 78;
@@ -16,6 +18,10 @@ const CIRCLE_GAP = 150;
 const WORLD_MARGIN = 180;
 const MIN_SCALE = 0.24;
 const MAX_SCALE = 1.25;
+const PREVIEW_MEDIA_WIDTH = 240;
+const PREVIEW_MEDIA_MIN_HEIGHT = 80;
+const PREVIEW_MEDIA_MAX_HEIGHT = 360;
+const PREVIEW_CHROME_HEIGHT = 64;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -155,6 +161,9 @@ export default function ColorGroupBoard({
   manualAssignments,
   quality,
   onAssign,
+  onDownload,
+  onDelete,
+  onUpdateTags,
   onConfigure,
   onClose,
 }) {
@@ -170,6 +179,7 @@ export default function ColorGroupBoard({
   const [preview, setPreview] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [lastAction, setLastAction] = useState('');
+  const [tagPanelOpen, setTagPanelOpen] = useState(false);
 
   const layout = useMemo(() => buildColorBoardLayout(
     illustrations,
@@ -183,6 +193,14 @@ export default function ColorGroupBoard({
     () => new Map(layout.circles.map((circle) => [circle.id, circle])),
     [layout.circles],
   );
+  const selectedIllustrations = useMemo(
+    () => illustrations.filter((illustration) => selectedIds.has(illustration.id)),
+    [illustrations, selectedIds],
+  );
+  const resolveColorGroupName = useCallback((illustration) => {
+    const membership = layout.memberships.get(illustration.id);
+    return circleById.get(membership?.effectiveGroupId)?.label || t('colorBoard.tags.otherGroup');
+  }, [circleById, layout.memberships, t]);
 
   const toWorld = useCallback((clientX, clientY) => {
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -233,11 +251,13 @@ export default function ColorGroupBoard({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      if (tagPanelOpen) setTagPanelOpen(false);
+      else onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, tagPanelOpen]);
 
   useEffect(() => () => gestureRef.current?.cleanup?.(), []);
 
@@ -247,6 +267,10 @@ export default function ColorGroupBoard({
       return new Set([...previous].filter((id) => availableIds.has(id)));
     });
   }, [illustrations]);
+
+  useEffect(() => {
+    if (selectedIds.size === 0) setTagPanelOpen(false);
+  }, [selectedIds.size]);
 
   useEffect(() => {
     if (!lastAction) return undefined;
@@ -455,11 +479,22 @@ export default function ColorGroupBoard({
   };
 
   const manualTotal = Object.keys(manualAssignments || {}).length;
+  const previewMediaHeight = preview
+    ? getAspectFitPreviewHeight(
+      preview.illustration,
+      PREVIEW_MEDIA_WIDTH,
+      PREVIEW_MEDIA_MIN_HEIGHT,
+      PREVIEW_MEDIA_MAX_HEIGHT,
+    )
+    : 0;
   const previewLeft = preview
     ? Math.min(preview.clientX + 18, Math.max(12, window.innerWidth - 286))
     : 0;
   const previewTop = preview
-    ? Math.min(preview.clientY + 18, Math.max(12, window.innerHeight - 326))
+    ? Math.min(
+      preview.clientY + 18,
+      Math.max(12, window.innerHeight - previewMediaHeight - PREVIEW_CHROME_HEIGHT),
+    )
     : 0;
 
   return (
@@ -753,11 +788,22 @@ export default function ColorGroupBoard({
           className="pointer-events-none fixed z-50 w-64 overflow-hidden rounded-2xl border border-edge-primary bg-surface-secondary/95 p-2 shadow-2xl shadow-overlay/25 backdrop-blur-xl"
           style={{ left: previewLeft, top: previewTop }}
         >
-          <img
-            src={backendUrl(`${preview.illustration.thumbnail_url}?quality=${quality === 'low' ? 'normal' : quality}`)}
-            alt={preview.illustration.original_filename}
-            className="aspect-[4/3] w-full rounded-xl bg-surface-tertiary object-cover"
-          />
+          <div
+            className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-surface-tertiary"
+            style={{ height: previewMediaHeight }}
+          >
+            <img
+              key={preview.illustration.id}
+              src={backendUrl(`${preview.illustration.thumbnail_url}?quality=${quality === 'low' ? 'normal' : quality}`)}
+              alt={preview.illustration.original_filename}
+              className="h-full w-full object-contain"
+              onError={(event) => {
+                if (event.currentTarget.dataset.lowQualityFallback) return;
+                event.currentTarget.dataset.lowQualityFallback = 'true';
+                event.currentTarget.src = backendUrl(`${preview.illustration.thumbnail_url}?quality=low`);
+              }}
+            />
+          </div>
           <div className="flex items-center gap-2 px-1 pb-1 pt-2">
             <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
               preview.membership?.source === 'manual' ? 'bg-accent/15 text-accent' : 'bg-surface-tertiary text-content-muted'
@@ -782,50 +828,55 @@ export default function ColorGroupBoard({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
-        <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-2xl border border-edge-primary/90 bg-surface-secondary/90 px-3 py-2 shadow-xl shadow-overlay/10 backdrop-blur-xl">
-          {lastAction ? (
-            <span className="px-2 text-xs font-medium text-accent">{lastAction}</span>
-          ) : dropTarget ? (
-            <span className="px-2 text-xs font-medium text-accent">
-              {dropTarget === 'outside'
-                ? t('colorBoard.drop.clear')
-                : t('colorBoard.drop.group', { group: circleById.get(dropTarget)?.label || '' })}
-            </span>
-          ) : selectedIds.size > 0 ? (
-            <>
-              <span className="rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-white">
-                {t('colorBoard.selected', { count: selectedIds.size })}
+      {(lastAction || dropTarget || selectedIds.size === 0) && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+          <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-2xl border border-edge-primary/90 bg-surface-secondary/90 px-3 py-2 shadow-xl shadow-overlay/10 backdrop-blur-xl">
+            {lastAction ? (
+              <span className="px-2 text-xs font-medium text-accent">{lastAction}</span>
+            ) : dropTarget ? (
+              <span className="px-2 text-xs font-medium text-accent">
+                {dropTarget === 'outside'
+                  ? t('colorBoard.drop.clear')
+                  : t('colorBoard.drop.group', { group: circleById.get(dropTarget)?.label || '' })}
               </span>
-              <span className="text-[10px] text-content-muted">{t('colorBoard.help.dragSelection')}</span>
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                className="rounded-lg px-2 py-1 text-[10px] text-content-muted hover:bg-surface-tertiary hover:text-content-primary"
-              >
-                {t('colorBoard.clearSelection')}
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="hidden items-center gap-1.5 text-[10px] text-content-muted sm:flex">
-                <Move className="h-3 w-3" />
-                {t('colorBoard.help.pan')}
-              </span>
-              <span className="hidden h-4 w-px bg-edge-primary sm:block" />
-              <span className="flex items-center gap-1.5 text-[10px] text-content-muted">
-                <MousePointer2 className="h-3 w-3" />
-                {t('colorBoard.help.select')}
-              </span>
-              <span className="h-4 w-px bg-edge-primary" />
-              <span className="flex items-center gap-1.5 text-[10px] text-content-muted">
-                <Hand className="h-3 w-3" />
-                {t('colorBoard.help.assign')}
-              </span>
-            </>
-          )}
+            ) : (
+              <>
+                <span className="hidden items-center gap-1.5 text-[10px] text-content-muted sm:flex">
+                  <Move className="h-3 w-3" />
+                  {t('colorBoard.help.pan')}
+                </span>
+                <span className="hidden h-4 w-px bg-edge-primary sm:block" />
+                <span className="flex items-center gap-1.5 text-[10px] text-content-muted">
+                  <MousePointer2 className="h-3 w-3" />
+                  {t('colorBoard.help.select')}
+                </span>
+                <span className="h-4 w-px bg-edge-primary" />
+                <span className="flex items-center gap-1.5 text-[10px] text-content-muted">
+                  <Hand className="h-3 w-3" />
+                  {t('colorBoard.help.assign')}
+                </span>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {selectedIds.size > 0 && !lastAction && !dropTarget && (
+        <ColorBoardSelectionDock
+          selectedIllustrations={selectedIllustrations}
+          quality={quality}
+          resolveColorGroupName={resolveColorGroupName}
+          onClear={() => setSelectedIds(new Set())}
+          onDownload={onDownload}
+          onDelete={onDelete}
+          onUpdateTags={onUpdateTags}
+          tagPanelOpen={tagPanelOpen}
+          onTagPanelChange={(open) => {
+            setTagPanelOpen(open);
+            if (open) setPreview(null);
+          }}
+        />
+      )}
     </motion.div>
   );
 }

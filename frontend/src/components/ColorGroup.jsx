@@ -49,7 +49,7 @@ export default function ColorGroup({ group, collapsed, onToggle, children, cardS
       </button>
       {!collapsed && (
         <div className="px-4 pb-4">
-          <div className={`grid ${gridClass} gap-4`}>
+          <div className={`grid items-start ${gridClass} gap-4`}>
             <AnimatePresence mode="popLayout">
               {children}
             </AnimatePresence>

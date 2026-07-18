@@ -49,6 +49,10 @@ html {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+.illustration-original-ratio {
+  aspect-ratio: var(--illustration-aspect-ratio, 1 / 1);
+}
+
 /* ── Theme-aware scroll areas ─────────────────────────── */
 .artifex-scrollbar {
   scrollbar-color: rgb(var(--clr-accent) / 0.55) transparent;
@@ -75,4 +79,43 @@ html {
 .artifex-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--clr-accent) / 0.68);
   background-clip: padding-box;
+}
+
+/* Quiet, compact scrollbars for dense canvas controls. */
+.artifex-scrollbar.artifex-scrollbar-quiet {
+  scrollbar-color: rgb(var(--clr-text-muted) / 0.48) rgb(var(--clr-surface-3) / 0.48);
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-track {
+  margin-block: 4px;
+  background: rgb(var(--clr-surface-3) / 0.48);
+  border-radius: 999px;
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  background: rgb(var(--clr-text-muted) / 0.48);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--clr-accent) / 0.72);
+  background-clip: padding-box;
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-corner {
+  background: transparent;
 }

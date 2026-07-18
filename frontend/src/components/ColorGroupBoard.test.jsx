@@ -15,6 +15,8 @@ jest.mock('framer-motion', () => {
 const illustration = (id, tags = '') => ({
   id,
   tags,
+  width: 600,
+  height: 900,
   original_filename: `${id}.png`,
   thumbnail_url: `/api/illustrations/${id}/thumbnail`,
   extended_data: {},
@@ -82,5 +84,34 @@ describe('color group board layout', () => {
     fireEvent.click(action);
 
     expect(onConfigure).toHaveBeenCalledTimes(1);
+  });
+
+  test('shows the entire illustration in its original aspect ratio on hover', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    render(
+      <LocaleProvider>
+        <ColorGroupBoard
+          groupName="Studio"
+          illustrations={[illustration(1, 'warm')]}
+          pairs={[pair]}
+          matchOrder={['warm']}
+          manualAssignments={{}}
+          quality="low"
+          onAssign={jest.fn()}
+          onConfigure={jest.fn()}
+          onClose={jest.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /1\.png/ }), {
+      clientX: 160,
+      clientY: 140,
+    });
+    const previewImage = screen.getByRole('img', { name: '1.png' });
+    expect(previewImage).toHaveClass('object-contain');
+    expect(previewImage.parentElement).toHaveStyle({ height: '360px' });
+    fireEvent.error(previewImage);
+    expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
   });
 });
