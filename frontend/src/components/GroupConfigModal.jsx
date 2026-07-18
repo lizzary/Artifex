@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
 import {
-  Check, GripVertical, Layers3, Palette, Pencil, Plus, RotateCcw, Trash2, X,
+  ArrowRight, Check, GripVertical, Hand, Layers3, Palette, Pencil,
+  Plus, RotateCcw, Trash2, X,
 } from 'lucide-react';
 import TagPromptSuggest from './TagPromptSuggest';
 import SettingsSelect from './SettingsSelect';
+import InferenceIcon from './InferenceIcon';
 import { useLocale } from '../contexts/LocaleContext';
 import { groupDisplayName, normalizePairTerms, validateExpression } from '../utils/grouping';
 import { groupColorsFromHex, toHexColor } from '../utils/groupColors';
@@ -23,14 +25,13 @@ function clonePairs(pairs) {
 }
 
 function cleanPairs(pairs) {
-  return pairs.flatMap((pair) => {
+  return pairs.map((pair) => {
     const terms = normalizePairTerms(pair)
       .map((term) => ({ ...term, value: term.value.trim() }))
       .filter((term) => term.value);
-    if (terms.length === 0) return [];
-    terms[0] = { ...terms[0], operator: 'and' };
+    if (terms.length > 0) terms[0] = { ...terms[0], operator: 'and' };
     const customName = typeof pair.customName === 'string' ? pair.customName.trim() : '';
-    return [{ ...pair, customName, terms }];
+    return { ...pair, customName, terms };
   });
 }
 
@@ -62,13 +63,22 @@ export default function GroupConfigModal({ config, onClose }) {
 
   const priorityPairs = useMemo(() => {
     const byId = new Map(editingPairs.map((pair) => [pair.id, pair]));
-    return normalizeOrder(editingMatchOrder, editingPairs).map((id) => byId.get(id)).filter(Boolean);
+    return normalizeOrder(editingMatchOrder, editingPairs)
+      .map((id) => byId.get(id))
+      .filter((pair) => pair && normalizePairTerms(pair).some((term) => term.value.trim()));
   }, [editingPairs, editingMatchOrder]);
+
+  const manualCounts = useMemo(() => Object.values(config.manualAssignments || {}).reduce((counts, pairId) => {
+    counts[pairId] = (counts[pairId] || 0) + 1;
+    return counts;
+  }, {}), [config.manualAssignments]);
 
   const commitCurrent = () => {
     const cleaned = cleanPairs(editingPairs);
     const invalid = new Set(
-      cleaned.filter((pair) => !validateExpression(pair).valid).map((pair) => pair.id),
+      cleaned.filter((pair) => (
+        normalizePairTerms(pair).length > 0 && !validateExpression(pair).valid
+      )).map((pair) => pair.id),
     );
     if (invalid.size > 0) {
       setInvalidIds(invalid);
@@ -127,10 +137,7 @@ export default function GroupConfigModal({ config, onClose }) {
     setEditingPairs((previous) => previous.map((pair) => {
       if (pair.id !== pairId) return pair;
       const terms = normalizePairTerms(pair).filter((_, index) => index !== termIndex);
-      if (terms.length === 0) {
-        return { ...pair, terms: [{ value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0 }] };
-      }
-      terms[0] = { ...terms[0], operator: 'and' };
+      if (terms.length > 0) terms[0] = { ...terms[0], operator: 'and' };
       return { ...pair, terms };
     }));
   };
@@ -140,8 +147,8 @@ export default function GroupConfigModal({ config, onClose }) {
     const color = palette[editingPairs.length % palette.length];
     const pair = {
       id,
-      customName: '',
-      terms: [{ value: '', scope: 'all', operator: 'and', negated: false, open: 0, close: 0 }],
+      customName: t('groupConfig.defaultGroupName', { n: editingPairs.length + 1 }),
+      terms: [],
       color: color.bg,
       borderColor: color.border,
     };
@@ -180,7 +187,11 @@ export default function GroupConfigModal({ config, onClose }) {
     setDeleteConfirm(null);
   };
 
-  const reorderPriority = (nextPairs) => setEditingMatchOrder(nextPairs.map((pair) => pair.id));
+  const reorderPriority = (nextPairs) => {
+    const automaticIds = nextPairs.map((pair) => pair.id);
+    const manualOnlyIds = editingPairs.map((pair) => pair.id).filter((id) => !automaticIds.includes(id));
+    setEditingMatchOrder([...automaticIds, ...manualOnlyIds]);
+  };
 
   return (
     <motion.div
@@ -196,45 +207,61 @@ export default function GroupConfigModal({ config, onClose }) {
         initial={{ scale: 0.97, y: 12, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         exit={{ scale: 0.97, y: 12, opacity: 0 }}
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-edge-primary bg-surface-secondary shadow-2xl"
+        className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-edge-primary bg-surface-secondary shadow-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-edge-primary px-5 py-4 sm:px-6">
-          <div>
-            <div className="mb-1 flex items-center gap-2 text-accent">
-              <Layers3 className="h-4 w-4" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">
-                {t('groupConfig.eyebrow')}
+        <div className="flex items-start justify-between gap-4 border-b border-edge-primary px-5 py-4 sm:px-7 sm:py-5">
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center gap-2 text-accent">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-accent/10">
+                <Palette className="h-3.5 w-3.5" />
               </span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">{t('groupConfig.eyebrow')}</span>
             </div>
-            <h3 id="group-config-title" className="text-lg font-semibold text-content-primary">
+            <h3 id="group-config-title" className="text-xl font-semibold tracking-tight text-content-primary">
               {t('groupConfig.titleMixed')}
             </h3>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-content-muted">
+            <p className="mt-1 max-w-3xl text-xs leading-relaxed text-content-muted sm:text-sm">
               {t('groupConfig.subtitle')}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="-mr-1 rounded-lg p-2 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="-mr-1 rounded-xl p-2 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40"
             aria-label={t('groupConfig.cancel')}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="border-b border-edge-primary px-5 pt-4 sm:px-6">
-          <div className="mb-3 space-y-1 text-[11px] leading-relaxed text-content-muted">
-            <p>{t('groupConfig.sets.switchHint')}</p>
-            <p>{t('groupConfig.sets.ruleGuide')}</p>
-            <p className="flex flex-wrap items-center gap-1.5">
-              <span className="font-medium text-content-tertiary">{t('groupConfig.sets.exampleLabel')}</span>
-              <code className="rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">
-                {t('groupConfig.sets.example')}
-              </code>
-            </p>
+        <div className="border-b border-edge-primary bg-surface-primary/35 px-5 py-4 sm:px-7">
+          <div className="grid items-stretch gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+            <ConceptCard
+              icon={Hand}
+              title={t('groupConfig.concept.manual')}
+              description={t('groupConfig.concept.manualDesc')}
+            />
+            <div className="hidden place-items-center text-content-muted sm:grid"><ArrowRight className="h-4 w-4" /></div>
+            <ConceptCard
+              icon={InferenceIcon}
+              title={t('groupConfig.concept.automatic')}
+              description={t('groupConfig.concept.automaticDesc')}
+            />
+            <div className="hidden place-items-center text-content-muted sm:grid"><ArrowRight className="h-4 w-4" /></div>
+            <ConceptCard
+              icon={Layers3}
+              title={t('groupConfig.concept.result')}
+              description={t('groupConfig.concept.resultDesc')}
+            />
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-3">
+        </div>
+
+        <div className="border-b border-edge-primary px-5 pt-3 sm:px-7">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-content-muted">{t('groupConfig.sets.switchHint')}</p>
+            <span className="hidden text-[10px] text-content-muted sm:inline">{t('groupConfig.sets.ruleGuide')}</span>
+          </div>
+          <div className="artifex-scrollbar flex items-center gap-1.5 overflow-x-auto pb-3">
             {sets.map((set, index) => {
               const isActive = set.id === activeSetId;
               return (
@@ -263,7 +290,7 @@ export default function GroupConfigModal({ config, onClose }) {
           </div>
         </div>
 
-        <div className="artifex-scrollbar overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="artifex-scrollbar overflow-y-auto px-5 py-5 sm:px-7">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="flex flex-1 items-center gap-2 rounded-xl border border-edge-secondary bg-surface-tertiary px-3 py-2.5 transition-all focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20">
               <Pencil className="h-3.5 w-3.5 shrink-0 text-content-muted" />
@@ -301,7 +328,7 @@ export default function GroupConfigModal({ config, onClose }) {
             </div>
           )}
 
-          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
             <section aria-labelledby="display-order-heading">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
@@ -332,6 +359,7 @@ export default function GroupConfigModal({ config, onClose }) {
                         defaultColor={fallback}
                         palette={palette}
                         invalid={invalidIds.has(pair.id)}
+                        manualCount={manualCounts[pair.id] || 0}
                         t={t}
                         onUpdateTerm={updateTerm}
                         onAddTerm={addTerm}
@@ -355,11 +383,11 @@ export default function GroupConfigModal({ config, onClose }) {
               </button>
             </section>
 
-            <aside className="rounded-2xl border border-edge-primary bg-surface-tertiary/60 p-4 lg:sticky lg:top-0" aria-labelledby="match-priority-heading">
+            <aside className="rounded-2xl border border-edge-primary bg-surface-tertiary/55 p-4 lg:sticky lg:top-0" aria-labelledby="match-priority-heading">
               <div className="mb-3">
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                    <Layers3 className="h-3.5 w-3.5" />
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-surface-secondary text-content-tertiary shadow-sm">
+                    <InferenceIcon className="h-3 w-3" />
                   </span>
                   <h4 id="match-priority-heading" className="text-sm font-semibold text-content-primary">
                     {t('groupConfig.priority.title')}
@@ -368,12 +396,25 @@ export default function GroupConfigModal({ config, onClose }) {
                 <p className="text-xs leading-relaxed text-content-muted">{t('groupConfig.priority.desc')}</p>
               </div>
 
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.07] px-3 py-2.5 shadow-sm">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent">
+                  <Hand className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-content-secondary">{t('groupConfig.priority.manualStep')}</p>
+                  <p className="text-[10px] leading-relaxed text-content-muted">{t('groupConfig.priority.manualStepDesc')}</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-accent/20 bg-surface-secondary/70 px-2 py-0.5 text-[8px] font-semibold text-accent">
+                  {t('groupConfig.priority.fixed')}
+                </span>
+              </div>
+
               {priorityPairs.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-edge-primary px-3 py-5 text-center text-xs text-content-muted">
+                <p className="mb-2 rounded-xl border border-dashed border-edge-primary px-3 py-4 text-center text-[11px] leading-relaxed text-content-muted">
                   {t('groupConfig.priority.empty')}
                 </p>
               ) : (
-                <Reorder.Group axis="y" values={priorityPairs} onReorder={reorderPriority} className="space-y-2">
+                <Reorder.Group axis="y" values={priorityPairs} onReorder={reorderPriority} className="mb-2 space-y-2">
                   {priorityPairs.map((pair, index) => (
                     <PriorityItem
                       key={pair.id}
@@ -387,7 +428,7 @@ export default function GroupConfigModal({ config, onClose }) {
               )}
 
               <div
-                className="mt-3 flex items-center gap-2 rounded-xl border px-3 py-2.5"
+                className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
                 style={{ backgroundColor: config.otherColor.bg, borderColor: config.otherColor.border }}
               >
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: config.otherColor.border }} />
@@ -400,7 +441,11 @@ export default function GroupConfigModal({ config, onClose }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-edge-primary bg-surface-secondary px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-t border-edge-primary bg-surface-secondary px-5 py-4 sm:px-7">
+          <p className="hidden text-[10px] text-content-muted sm:block">
+            {t('groupConfig.footerSummary', { groups: editingPairs.length, manual: Object.keys(config.manualAssignments || {}).length })}
+          </p>
+          <div className="ml-auto flex items-center gap-3">
           <button
             type="button"
             onClick={onClose}
@@ -415,9 +460,26 @@ export default function GroupConfigModal({ config, onClose }) {
           >
             {t('groupConfig.save')}
           </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+function ConceptCard({ icon: Icon, title, description }) {
+  return (
+    <div className="relative min-w-0 rounded-2xl border border-edge-primary bg-surface-secondary/75 px-3.5 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-surface-tertiary text-content-tertiary">
+            <Icon className="h-3 w-3 text-[11px]" />
+          </span>
+          <p className="text-xs font-semibold text-content-primary">{title}</p>
+        </div>
+        <p className="mt-1 text-[10px] leading-relaxed text-content-muted">{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -437,7 +499,7 @@ function getGroupRanges(terms) {
 }
 
 function PairItem({
-  pair, index, color, defaultColor, palette, invalid, t,
+  pair, index, color, defaultColor, palette, invalid, manualCount, t,
   onUpdateTerm, onAddTerm, onRemoveTerm, onRemovePair, onUpdateColor, onUpdateName,
 }) {
   const dragControls = useDragControls();
@@ -537,6 +599,12 @@ function PairItem({
                 {t('groupConfig.groupHeading', { n: index + 1 })}
               </span>
               <span className="hidden text-[10px] text-content-muted sm:inline">{t('groupConfig.displayOrder.badge')}</span>
+              {manualCount > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-medium text-accent">
+                  <Hand className="h-2.5 w-2.5" />
+                  {t('groupConfig.manualCount', { count: manualCount })}
+                </span>
+              )}
             </div>
             <input
               type="text"
@@ -557,6 +625,25 @@ function PairItem({
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
+
+      <div className="mb-2.5 flex items-center justify-between gap-3 border-t border-content-muted/10 pt-3">
+        <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-content-tertiary">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-surface-tertiary text-content-secondary shadow-sm ring-1 ring-edge-primary/60">
+            <InferenceIcon className="h-3.5 w-3.5" />
+          </span>
+          {t('groupConfig.autoRule.title')}
+        </span>
+        <span className="rounded-full bg-surface-secondary/70 px-2 py-0.5 text-[9px] text-content-muted">
+          {t('groupConfig.autoRule.optional')}
+        </span>
+      </div>
+
+      {terms.length > 0 && (
+        <div className="mb-2.5 flex items-center gap-1.5 rounded-lg border border-edge-primary/70 bg-surface-secondary/30 px-2.5 py-1.5">
+          <Hand className="h-2.5 w-2.5 shrink-0 text-accent/80" />
+          <p className="text-[9px] leading-relaxed text-content-muted">{t('groupConfig.autoRule.manualPriorityHint')}</p>
+        </div>
+      )}
 
       {logicMode && (
         <div className="mb-3 rounded-xl border border-accent/20 bg-surface-secondary/75 p-2.5 shadow-sm">
@@ -599,8 +686,19 @@ function PairItem({
         </div>
       )}
 
-      <div className="space-y-1.5">
-        {terms.map((term, termIndex) => {
+      {terms.length === 0 ? (
+        <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-edge-primary bg-surface-secondary/45 px-3 py-3">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent">
+            <Hand className="h-3.5 w-3.5" />
+          </span>
+          <div>
+            <p className="text-xs font-medium text-content-secondary">{t('groupConfig.autoRule.emptyTitle')}</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-content-muted">{t('groupConfig.autoRule.emptyDesc')}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {terms.map((term, termIndex) => {
           const activeRanges = ranges.filter((range) => range.start <= termIndex && range.end >= termIndex);
           const startingRanges = activeRanges.filter((range) => range.start === termIndex);
           return (
@@ -641,7 +739,7 @@ function PairItem({
                 term={term}
                 termIndex={termIndex}
                 pairId={pair.id}
-                canRemove={terms.length > 1}
+                canRemove
                 logicMode={logicMode}
                 selected={selectedIndices.has(termIndex)}
                 t={t}
@@ -654,8 +752,9 @@ function PairItem({
               />
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <button
@@ -664,24 +763,26 @@ function PairItem({
           className="flex items-center gap-1 text-xs text-content-muted transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
         >
           <Plus className="h-3 w-3" />
-          {t('groupConfig.addKeyword')}
+          {terms.length === 0 ? t('groupConfig.autoRule.add') : t('groupConfig.addKeyword')}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setLogicMode((previous) => !previous);
-            setSelectedIndices(new Set());
-          }}
-          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/30 ${
-            logicMode
-              ? 'border-accent/30 bg-accent/10 text-accent'
-              : 'border-edge-primary bg-surface-tertiary/70 text-content-muted hover:border-edge-secondary hover:text-content-primary'
-          }`}
-          aria-pressed={logicMode}
-        >
-          <span className="font-mono text-[9px]">&#123;…&#125;</span>
-          {t('groupConfig.logic.tools')}
-        </button>
+        {terms.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setLogicMode((previous) => !previous);
+              setSelectedIndices(new Set());
+            }}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+              logicMode
+                ? 'border-accent/30 bg-accent/10 text-accent'
+                : 'border-edge-primary bg-surface-tertiary/70 text-content-muted hover:border-edge-secondary hover:text-content-primary'
+            }`}
+            aria-pressed={logicMode}
+          >
+            <span className="font-mono text-[9px]">&#123;…&#125;</span>
+            {t('groupConfig.logic.tools')}
+          </button>
+        )}
       </div>
     </Reorder.Item>
   );

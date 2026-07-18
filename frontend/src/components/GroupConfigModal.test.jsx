@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import GroupConfigModal from './GroupConfigModal';
 import { LocaleProvider } from '../contexts/LocaleContext';
@@ -76,6 +76,37 @@ describe('GroupConfigModal progressive logic editor', () => {
     expect(screen.getByRole('button', { name: 'Remove NOT from this condition' })).toHaveTextContent('NOT');
   });
 
+  test('shows manual grouping as the fixed first step while keeping rules visually primary', () => {
+    render(
+      <LocaleProvider>
+        <GroupConfigModal config={createConfig()} onClose={jest.fn()} />
+      </LocaleProvider>,
+    );
+
+    const logicOrder = screen.getByRole('complementary', { name: 'Grouping logic order' });
+    expect(within(logicOrder).getByText('Manual grouping')).toBeInTheDocument();
+    expect(within(logicOrder).getByText('FIXED FIRST')).toBeInTheDocument();
+    expect(within(logicOrder).getByText('Color group 1')).toBeInTheDocument();
+    expect(within(logicOrder).getByText('Other')).toBeInTheDocument();
+    expect(screen.getByText(/Board placements still enter this group first/)).toBeInTheDocument();
+  });
+
+  test('renders automatic inference as an image-backed icon instead of standalone fx text', () => {
+    const { container } = render(
+      <LocaleProvider>
+        <GroupConfigModal config={createConfig()} onClose={jest.fn()} />
+      </LocaleProvider>,
+    );
+
+    const ruleTitle = screen.getByText('Automatic entry rule').closest('span');
+    const icon = ruleTitle.querySelector('[data-icon="automatic-inference"]');
+
+    expect(icon).toBeInTheDocument();
+    expect(icon).toBeEmptyDOMElement();
+    expect(icon.style.maskImage).toContain('data:image/png;base64');
+    expect(container).not.toHaveTextContent(/(^|\s)fx(\s|$)/i);
+  });
+
   test('saves an independently selected custom color for the group', () => {
     const config = createConfig();
     render(
@@ -95,5 +126,27 @@ describe('GroupConfigModal progressive logic editor', () => {
       color: 'rgba(18, 52, 86, 0.08)',
       borderColor: 'rgba(18, 52, 86, 0.35)',
     });
+  });
+
+  test('keeps a named color group when its automatic rule is empty', () => {
+    const config = createConfig();
+    config.sets[0].pairs[0] = {
+      ...config.sets[0].pairs[0],
+      customName: 'Curated picks',
+      terms: [],
+    };
+
+    render(
+      <LocaleProvider>
+        <GroupConfigModal config={config} onClose={jest.fn()} />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText('Manual-only color group')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const [savedPairs] = config.setPairs.mock.calls[0];
+    expect(savedPairs).toHaveLength(1);
+    expect(savedPairs[0]).toMatchObject({ customName: 'Curated picks', terms: [] });
   });
 });

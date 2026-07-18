@@ -156,31 +156,74 @@ export function matchesPromptPair(ill, keywords) {
   });
 }
 
-export function groupIllustrations(illustrations, pairs, otherColor, matchOrder = []) {
+function priorityGroupsFor(pairs, matchOrder = []) {
+  const groupById = new Map(pairs.map((group) => [group.id, group]));
+  const orderedIds = [
+    ...matchOrder.filter((id) => groupById.has(id)),
+    ...pairs.map((group) => group.id).filter((id) => !matchOrder.includes(id)),
+  ];
+  return orderedIds.map((id) => groupById.get(id));
+}
+
+export function normalizeManualAssignments(assignments, pairs = []) {
+  if (!assignments || typeof assignments !== 'object' || Array.isArray(assignments)) return {};
+  const validGroupIds = new Set(pairs.map((pair) => pair.id));
+  return Object.entries(assignments).reduce((result, [illustrationId, groupId]) => {
+    if (validGroupIds.has(groupId)) result[String(illustrationId)] = groupId;
+    return result;
+  }, {});
+}
+
+export function getIllustrationMemberships(illustrations, pairs, matchOrder = [], manualAssignments = {}) {
+  const validAssignments = normalizeManualAssignments(manualAssignments, pairs);
+  const priorityGroups = priorityGroupsFor(pairs, matchOrder);
+  const memberships = new Map();
+
+  for (const illustration of illustrations) {
+    const computedGroup = priorityGroups.find((group) => matchesMixedExpression(illustration, group));
+    const manualGroupId = validAssignments[String(illustration.id)] || null;
+    const computedGroupId = computedGroup?.id || null;
+    memberships.set(illustration.id, {
+      manualGroupId,
+      computedGroupId,
+      effectiveGroupId: manualGroupId ?? computedGroupId ?? 'other',
+      source: manualGroupId ? 'manual' : (computedGroupId ? 'computed' : 'other'),
+    });
+  }
+
+  return memberships;
+}
+
+export function groupIllustrations(
+  illustrations,
+  pairs,
+  otherColor,
+  matchOrder = [],
+  manualAssignments = {},
+) {
   const displayGroups = pairs.map((pair) => ({
     ...pair,
     name: groupDisplayName(pair),
     items: [],
+    manualCount: 0,
+    computedCount: 0,
   }));
   const groupById = new Map(displayGroups.map((group) => [group.id, group]));
-  const orderedIds = [
-    ...matchOrder.filter((id) => groupById.has(id)),
-    ...displayGroups.map((group) => group.id).filter((id) => !matchOrder.includes(id)),
-  ];
-  const priorityGroups = orderedIds.map((id) => groupById.get(id));
-  const matchedIds = new Set();
+  const memberships = getIllustrationMemberships(illustrations, pairs, matchOrder, manualAssignments);
+  const otherItems = [];
 
-  for (const ill of illustrations) {
-    for (const group of priorityGroups) {
-      if (matchesMixedExpression(ill, group)) {
-        group.items.push(ill);
-        matchedIds.add(ill.id);
-        break;
-      }
+  for (const illustration of illustrations) {
+    const membership = memberships.get(illustration.id);
+    const target = groupById.get(membership?.effectiveGroupId);
+    if (!target) {
+      otherItems.push(illustration);
+      continue;
     }
+    target.items.push(illustration);
+    if (membership.source === 'manual') target.manualCount += 1;
+    else target.computedCount += 1;
   }
 
-  const otherItems = illustrations.filter((ill) => !matchedIds.has(ill.id));
   const result = displayGroups.filter((group) => group.items.length > 0);
   if (otherItems.length > 0) {
     result.push({
@@ -189,6 +232,8 @@ export function groupIllustrations(illustrations, pairs, otherColor, matchOrder 
       color: otherColor.bg,
       borderColor: otherColor.border,
       items: otherItems,
+      manualCount: 0,
+      computedCount: 0,
     });
   }
   return result;
@@ -231,5 +276,5 @@ export function paginateIllustrationGroups(groups, page, pageSize) {
 
 export const GROUP_BY_OPTIONS = [
   { value: 'none', label: 'No Grouping' },
-  { value: 'mixed', label: 'Smart Groups' },
+  { value: 'mixed', label: 'Color Groups' },
 ];

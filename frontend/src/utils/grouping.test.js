@@ -25,7 +25,7 @@ const term = (value, options = {}) => ({
   ...options,
 });
 
-describe('smart grouping expressions', () => {
+describe('color-group automatic inference expressions', () => {
   test('uses an optional custom group name and falls back to the Boolean expression', () => {
     const named = { customName: '  Favorites  ', terms: [term('portrait', { scope: 'prompt' })] };
     const unnamed = { customName: '   ', terms: [term('portrait', { scope: 'prompt' })] };
@@ -121,6 +121,53 @@ describe('smart grouping expressions', () => {
     expect(result.map((group) => group.id)).toEqual(['display-first', 'priority-first']);
     expect(result[0].items.map((item) => item.id)).toEqual([2]);
     expect(result[1].items.map((item) => item.id)).toEqual([1]);
+  });
+
+  test('lets a manual color-group assignment override automatic inference', () => {
+    const pairs = [
+      { id: 'cats', customName: 'Cats', terms: [term('cat', { scope: 'tag' })] },
+      { id: 'favorites', customName: 'Favorites', terms: [] },
+    ];
+    const illustrations = [illustration(1, 'cat'), illustration(2, 'cat')];
+    const result = groupIllustrations(
+      illustrations,
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['cats', 'favorites'],
+      { 1: 'favorites' },
+    );
+
+    expect(result.map((group) => [group.id, group.items.map((item) => item.id)])).toEqual([
+      ['cats', [2]],
+      ['favorites', [1]],
+    ]);
+    expect(result[0]).toMatchObject({ manualCount: 0, computedCount: 1 });
+    expect(result[1]).toMatchObject({ manualCount: 1, computedCount: 0 });
+  });
+
+  test('falls back to the computed group when a manual assignment is cleared or stale', () => {
+    const pairs = [
+      { id: 'cats', customName: 'Cats', terms: [term('cat', { scope: 'tag' })] },
+      { id: 'favorites', customName: 'Favorites', terms: [] },
+    ];
+
+    const withoutOverride = groupIllustrations(
+      [illustration(1, 'cat')],
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['cats', 'favorites'],
+      {},
+    );
+    const withStaleOverride = groupIllustrations(
+      [illustration(1, 'cat')],
+      pairs,
+      { bg: 'gray', border: 'darkgray' },
+      ['cats', 'favorites'],
+      { 1: 'deleted-group' },
+    );
+
+    expect(withoutOverride[0].id).toBe('cats');
+    expect(withStaleOverride[0].id).toBe('cats');
   });
 
   test('paginates after display grouping instead of grouping an existing database page', () => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
+import { ArrowUpDown, Layers, Settings, Upload, Download, Trash2, X, Monitor, Loader2, ChevronLeft, ChevronRight, Tag, Palette } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
@@ -13,6 +13,7 @@ import ColorGroup from './ColorGroup';
 import DropdownSelect from './DropdownSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
+import ColorGroupBoard from './ColorGroupBoard';
 import ModelDownloadModal from './ModelDownloadModal';
 import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig from '../hooks/useGroupConfig';
@@ -50,6 +51,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   });
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
+  const [showColorBoard, setShowColorBoard] = useState(false);
   const fileInputRef = useRef(null);
   const { addToast } = useToast();
   const [quality, setQuality] = useQuality();
@@ -79,7 +81,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   const translatedGroupOptions = useMemo(() => [
     { value: 'none', label: t('dropdown.noGrouping') },
-    { value: 'mixed', label: t('dropdown.smartGrouping') },
+    { value: 'mixed', label: t('dropdown.colorGrouping') },
   ], [t]);
 
   const translatedQualityOptions = useMemo(() => [
@@ -184,6 +186,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       activeConfig.pairs,
       activeConfig.otherColor,
       activeConfig.matchOrder,
+      activeConfig.manualAssignments,
     );
   }, [groupBy, filteredIllustrations, activeConfig]);
 
@@ -553,8 +556,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     <>
       <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-edge-primary shrink-0">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-4 border-b border-edge-primary px-4 py-3.5 shrink-0 sm:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary transition-colors"
@@ -563,8 +566,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h2 className="text-lg font-semibold text-content-primary">{group.name}</h2>
-            <span className="text-sm text-content-muted">
+            <h2 className="max-w-[14rem] truncate whitespace-nowrap text-lg font-semibold text-content-primary" title={group.name}>{group.name}</h2>
+            <span className="hidden shrink-0 whitespace-nowrap text-sm text-content-muted 2xl:inline">
               {filterQuery.trim()
                 ? t('groupOverlay.filteredCount', { filteredCount: filteredIllustrations.length, total: illustrations.length })
                 : t('groupOverlay.totalCount', { total: totalCount })}
@@ -574,9 +577,24 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 {filterScope}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setShowColorBoard(true)}
+              className="group/board inline-flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-medium text-accent shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent/45 hover:bg-accent/15 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-accent/35"
+              title={t('groupOverlay.board.openHint')}
+              aria-label={t('groupOverlay.board.openHint')}
+            >
+              <span className="grid h-5 w-5 place-items-center rounded-lg bg-accent/15 transition-transform group-hover/board:rotate-6">
+                <Palette className="h-3 w-3" />
+              </span>
+              <span className="hidden xl:inline">{t('groupOverlay.board.open')}</span>
+              <span className="rounded-full bg-surface-secondary/80 px-1.5 py-0.5 text-[9px] tabular-nums text-content-muted">
+                {activeConfig.pairs.length}
+              </span>
+            </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2.5">
             {/* In-page search */}
             <TagPromptSuggest
               type="mixed"
@@ -918,6 +936,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
           <GroupConfigModal
             config={activeConfig}
             onClose={() => setShowGroupConfig(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showColorBoard && (
+          <ColorGroupBoard
+            groupName={group.name}
+            illustrations={illustrations}
+            pairs={activeConfig.pairs}
+            matchOrder={activeConfig.matchOrder}
+            manualAssignments={activeConfig.manualAssignments}
+            quality={quality}
+            onAssign={activeConfig.setManualGroupIds}
+            onConfigure={() => setShowGroupConfig(true)}
+            onClose={() => setShowColorBoard(false)}
           />
         )}
       </AnimatePresence>

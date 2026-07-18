@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getSettings, updateSettings } from '../api';
-import { normalizePairTerms } from '../utils/grouping';
+import { normalizeManualAssignments, normalizePairTerms } from '../utils/grouping';
 
 const GROUP_COLORS = [
   { bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.35)' },
@@ -90,6 +90,7 @@ function normalizeEntry(entry, fallbackScope = 'all') {
       name: set.name || `Set ${index + 1}`,
       pairs,
       match_order: normalizeMatchOrder(set.match_order, pairs),
+      manual_assignments: normalizeManualAssignments(set.manual_assignments, pairs),
     };
   });
   const activeId = entry?.active_id && sets.some((set) => set.id === entry.active_id)
@@ -119,6 +120,11 @@ function cloneEntryForScope(entry) {
       id: setId,
       pairs,
       match_order: normalizeMatchOrder(set.match_order, set.pairs).map((id) => pairIdMap.get(id)).filter(Boolean),
+      manual_assignments: Object.entries(set.manual_assignments || {}).reduce((assignments, [illustrationId, pairId]) => {
+        const clonedPairId = pairIdMap.get(pairId);
+        if (clonedPairId) assignments[illustrationId] = clonedPairId;
+        return assignments;
+      }, {}),
     };
   });
   return {
@@ -128,7 +134,9 @@ function cloneEntryForScope(entry) {
 }
 
 function makeDefaultEntry() {
-  const defaultSet = { id: genSetId(), name: 'Default', pairs: [], match_order: [] };
+  const defaultSet = {
+    id: genSetId(), name: 'Default', pairs: [], match_order: [], manual_assignments: {},
+  };
   return { sets: [defaultSet], active_id: defaultSet.id };
 }
 
@@ -195,6 +203,7 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
         name: name || `Set ${previous.sets.length + 1}`,
         pairs: [],
         match_order: [],
+        manual_assignments: {},
       };
       const next = { sets: [...previous.sets, newSet], activeId: newSet.id };
       stateRef.current = next;
@@ -234,7 +243,31 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
           ...set,
           pairs: normalizedPairs,
           match_order: normalizeMatchOrder(matchOrder ?? set.match_order, normalizedPairs),
+          manual_assignments: normalizeManualAssignments(set.manual_assignments, normalizedPairs),
         };
+      });
+      const next = { ...previous, sets };
+      stateRef.current = next;
+      persistEntry(scope, type, { sets, active_id: previous.activeId });
+      return next;
+    });
+  }, [scope, type]);
+
+  const setManualGroupIds = useCallback((illustrationIds, groupId) => {
+    const ids = [...new Set((illustrationIds || []).map((id) => String(id)))];
+    if (ids.length === 0) return;
+
+    setState((previous) => {
+      const sets = previous.sets.map((set) => {
+        if (set.id !== previous.activeId) return set;
+        const validGroupIds = new Set(set.pairs.map((pair) => pair.id));
+        const targetGroupId = validGroupIds.has(groupId) ? groupId : null;
+        const manualAssignments = { ...(set.manual_assignments || {}) };
+        ids.forEach((illustrationId) => {
+          if (targetGroupId) manualAssignments[illustrationId] = targetGroupId;
+          else delete manualAssignments[illustrationId];
+        });
+        return { ...set, manual_assignments: manualAssignments };
       });
       const next = { ...previous, sets };
       stateRef.current = next;
@@ -249,7 +282,9 @@ export default function useGroupConfig(type, scope = GLOBAL_SCOPE) {
     activeSet: activeSet || sets[0],
     pairs: activeSet?.pairs || [],
     matchOrder: activeSet?.match_order || [],
+    manualAssignments: activeSet?.manual_assignments || {},
     setPairs,
+    setManualGroupIds,
     otherColor: OTHER_COLOR,
     palette: GROUP_COLORS,
     switchSet,

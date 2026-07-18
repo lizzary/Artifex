@@ -47,7 +47,7 @@ export function listIllustrations(groupId, offset = 0, limit = 200) {
   return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`);
 }
 
-// Smart grouping is evaluated in the browser, so pagination based on the
+// Color-group inference is evaluated in the browser, so pagination based on the
 // resulting group order needs the complete illustration set first. Fetch in
 // bounded batches instead of relying on one oversized request.
 export async function listAllIllustrations(groupId, batchSize = 5000) {
