@@ -39,7 +39,32 @@ export default function ModelDownloadModal({ onDownload, onSkip, onClose }) {
           transition={{ type: 'spring', duration: 0.3 }}
           className="relative bg-surface-secondary border border-edge-primary rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
         >
-          {downloading ? (
+          {error ? (
+            <>
+              <h3 className="text-lg font-semibold text-content-primary mb-2">
+                {t('modelDownload.error.incompleteTitle')}
+              </h3>
+              <p className="text-sm text-content-tertiary leading-relaxed mb-3">
+                {t('modelDownload.error.incompleteDescription')}
+              </p>
+              <p className="text-danger text-xs break-words mb-6">{error}</p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={onSkip}
+                  className="px-5 py-2.5 rounded-xl text-sm font-medium bg-surface-tertiary hover:bg-edge-secondary text-content-secondary transition-all"
+                >
+                  {t('modelDownload.skip')}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-sm font-medium text-white shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all hover:scale-[1.03] inline-flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  {t('modelDownload.error.redownload')}
+                </button>
+              </div>
+            </>
+          ) : downloading ? (
             <>
               <h3 className="text-lg font-semibold text-content-primary mb-2">
                 {t('modelDownload.downloading.title')}
@@ -53,9 +78,6 @@ export default function ModelDownloadModal({ onDownload, onSkip, onClose }) {
                   {t('modelDownload.downloading.progress')}
                 </span>
               </div>
-              {error && (
-                <p className="text-danger text-xs mt-2 text-center">{error}</p>
-              )}
             </>
           ) : (
             <>
@@ -75,11 +97,6 @@ export default function ModelDownloadModal({ onDownload, onSkip, onClose }) {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-
-              {error && (
-                <p className="text-danger text-xs mb-3">{error}</p>
-              )}
-
               <div className="flex justify-end gap-3">
                 <button
                   onClick={onSkip}

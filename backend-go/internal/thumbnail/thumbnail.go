@@ -24,15 +24,9 @@ var QualityConfigs = map[string]QualityConfig{
 	"normal": {MaxSize: 1200, JPEGQuality: 85, Dir: "thumbnails_normal"},
 }
 
-// CreateThumbnail creates a thumbnail copy, maintaining aspect ratio, and
-// converting to RGB (required for JPEG output).
+// CreateThumbnail creates a thumbnail while maintaining aspect ratio.
 func CreateThumbnail(src image.Image, maxSize int) image.Image {
-	thumb := imaging.Clone(src)
-
-	// JPEG does not support alpha — composite onto white background
-	// imaging.Fit handles this automatically for RGBA images
-	thumb = imaging.Fit(thumb, maxSize, maxSize, imaging.Lanczos)
-	return thumb
+	return imaging.Fit(src, maxSize, maxSize, imaging.Lanczos)
 }
 
 // SaveJPEG encodes and saves an image as JPEG with given quality.

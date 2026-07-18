@@ -171,7 +171,6 @@ func parseOptions() options {
 	return options{
 		host:         *host,
 		port:         *port,
-		portAttempts: cli.DefaultPortAttempts,
 		baseDir:      baseDir,
 		dbPath:       *dbPath,
 		uploadsDir:   *uploadsDir,
@@ -186,7 +185,6 @@ func parseOptions() options {
 func (rt *appRuntime) bootstrap() cli.BootResult {
 	result := cli.BootResult{
 		DatabasePath: rt.opts.dbPath,
-		FrontendPath: rt.opts.frontendDir,
 		TaggerStatus: "disabled",
 	}
 
@@ -227,7 +225,6 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}
 
 	srv := server.NewServer(server.ServerConfig{
-		BaseDir:      rt.opts.baseDir,
 		UploadsDir:   rt.opts.uploadsDir,
 		ModelsDir:    rt.opts.modelsDir,
 		SettingsPath: rt.opts.settingsPath,
@@ -258,11 +255,10 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}
 
 	httpServer := &http.Server{
-		Addr:         addr,
-		Handler:      srv.Router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              addr,
+		Handler:           srv.Router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	rt.mu.Lock()
 	rt.httpServer = httpServer

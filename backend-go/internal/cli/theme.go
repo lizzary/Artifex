@@ -97,7 +97,6 @@ func DetectDark(mode ThemeMode) bool {
 }
 
 type palette struct {
-	dark      bool
 	noColor   bool
 	accent    string
 	text      string
@@ -112,7 +111,7 @@ type palette struct {
 }
 
 func newPalette(dark bool) palette {
-	p := palette{dark: dark, noColor: os.Getenv("NO_COLOR") != ""}
+	p := palette{noColor: os.Getenv("NO_COLOR") != ""}
 	if dark {
 		p.accent = "#9B87F5"
 		p.text = "#E4E2DF"
@@ -155,5 +154,3 @@ func (p palette) successStyle() lipgloss.Style   { return p.style(p.success) }
 func (p palette) warningStyle() lipgloss.Style   { return p.style(p.warning) }
 func (p palette) dangerStyle() lipgloss.Style    { return p.style(p.danger) }
 func (p palette) crabStyle() lipgloss.Style      { return p.style(p.crab) }
-func (p palette) pictureStyle() lipgloss.Style   { return p.style(p.picture) }
-func (p palette) eyeStyle() lipgloss.Style       { return p.style(p.eye) }

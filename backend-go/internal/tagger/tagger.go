@@ -38,7 +38,6 @@ const taggerInputSize = 448
 
 // Tag category indices
 const (
-	ratingCategory    = 9
 	generalCategory   = 0
 	characterCategory = 4
 )
@@ -52,7 +51,6 @@ const (
 var (
 	taggerSession    *ort.DynamicAdvancedSession
 	taggerTagNames   []string
-	taggerRatingIdx  []int
 	taggerGeneralIdx []int
 	taggerCharIdx    []int
 	taggerMu         sync.Mutex
@@ -71,7 +69,6 @@ func clearTaggerCacheLocked() {
 		taggerSession = nil
 	}
 	taggerTagNames = nil
-	taggerRatingIdx = nil
 	taggerGeneralIdx = nil
 	taggerCharIdx = nil
 }
@@ -108,6 +105,9 @@ func LoadTagger(modelsDir string) error {
 			labelsPath = defaultTags
 		}
 	} else {
+		if err := ValidateDefaultModel(modelsDir); err != nil {
+			return err
+		}
 		onnxPath = filepath.Join(defaultDir, DefaultONNX)
 		labelsPath = filepath.Join(defaultDir, DefaultTags)
 	}
@@ -123,7 +123,7 @@ func LoadTagger(modelsDir string) error {
 	}
 
 	// Parse labels CSV
-	tagNames, ratingIdx, generalIdx, charIdx, err := parseLabelsCSV(labelsPath)
+	tagNames, generalIdx, charIdx, err := parseLabelsCSV(labelsPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse labels: %w", err)
 	}
@@ -163,7 +163,6 @@ func LoadTagger(modelsDir string) error {
 
 	taggerSession = session
 	taggerTagNames = tagNames
-	taggerRatingIdx = ratingIdx
 	taggerGeneralIdx = generalIdx
 	taggerCharIdx = charIdx
 
@@ -195,6 +194,7 @@ func ExtractTags(img image.Image) string {
 		applog.Error("tagger", "tag extraction failed during preprocessing: %v", err)
 		return ""
 	}
+	defer inputTensor.Destroy()
 
 	// Run inference
 	outputs := []ort.Value{nil} // nil = auto-allocate by ONNX Runtime
@@ -312,20 +312,20 @@ func fileExists(path string) bool {
 // parseLabelsCSV reads a tags CSV file and returns tag names + category-indexed slices.
 // CSV format: tag_id, name, category, count (category column is the key for thresholds).
 // If tag_id is missing, row indices are used as IDs.
-func parseLabelsCSV(path string) (names []string, ratingIdx, generalIdx, charIdx []int, err error) {
+func parseLabelsCSV(path string) (names []string, generalIdx, charIdx []int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer f.Close()
 
 	reader := csv.NewReader(f)
 	rows, err := reader.ReadAll()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(rows) < 2 {
-		return nil, nil, nil, nil, fmt.Errorf("CSV has no data rows")
+		return nil, nil, nil, fmt.Errorf("CSV has no data rows")
 	}
 
 	// First row is header
@@ -341,7 +341,7 @@ func parseLabelsCSV(path string) (names []string, ratingIdx, generalIdx, charIdx
 		}
 	}
 	if nameCol == -1 {
-		return nil, nil, nil, nil, fmt.Errorf("CSV missing 'name' column")
+		return nil, nil, nil, fmt.Errorf("CSV missing 'name' column")
 	}
 
 	names = make([]string, 0, len(rows)-1)
@@ -360,8 +360,6 @@ func parseLabelsCSV(path string) (names []string, ratingIdx, generalIdx, charIdx
 
 		i := len(names) - 1
 		switch category {
-		case ratingCategory:
-			ratingIdx = append(ratingIdx, i)
 		case generalCategory:
 			generalIdx = append(generalIdx, i)
 		case characterCategory:
@@ -369,5 +367,5 @@ func parseLabelsCSV(path string) (names []string, ratingIdx, generalIdx, charIdx
 		}
 	}
 
-	return names, ratingIdx, generalIdx, charIdx, nil
+	return names, generalIdx, charIdx, nil
 }

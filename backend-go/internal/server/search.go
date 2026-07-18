@@ -13,7 +13,7 @@ import (
 func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {
-		writeJSON(w, 200, models.SearchResult{Items: []models.IllustrationResponse{}, Total: 0, Offset: 0, Limit: 0})
+		writeJSON(w, 200, models.IllustrationPage{Items: []models.IllustrationResponse{}, Total: 0, Offset: 0, Limit: 0})
 		return
 	}
 
@@ -24,7 +24,7 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 	normalized := strings.ReplaceAll(q, ",", " ")
 	terms := strings.Fields(normalized)
 	if len(terms) == 0 {
-		writeJSON(w, 200, models.SearchResult{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
+		writeJSON(w, 200, models.IllustrationPage{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
 		return
 	}
 
@@ -36,7 +36,7 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(safeTerms) == 0 {
-		writeJSON(w, 200, models.SearchResult{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
+		writeJSON(w, 200, models.IllustrationPage{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
 		return
 	}
 	ftsQuery := strings.Join(safeTerms, " AND ")
@@ -50,7 +50,7 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 		ftsQuery,
 	).Scan(&total)
 	if err != nil {
-		writeJSON(w, 200, models.SearchResult{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
+		writeJSON(w, 200, models.IllustrationPage{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
 		return
 	}
 
@@ -64,7 +64,7 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 		LIMIT ? OFFSET ?
 	`, ftsQuery, limit, offset)
 	if err != nil {
-		writeJSON(w, 200, models.SearchResult{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
+		writeJSON(w, 200, models.IllustrationPage{Items: []models.IllustrationResponse{}, Total: 0, Offset: offset, Limit: limit})
 		return
 	}
 	defer rows.Close()
@@ -77,5 +77,5 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, 200, models.SearchResult{Items: items, Total: total, Offset: offset, Limit: limit})
+	writeJSON(w, 200, models.IllustrationPage{Items: items, Total: total, Offset: offset, Limit: limit})
 }

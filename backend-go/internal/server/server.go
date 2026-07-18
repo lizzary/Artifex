@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,12 +18,26 @@ import (
 )
 
 type ServerConfig struct {
-	BaseDir      string
 	UploadsDir   string
 	ModelsDir    string
 	SettingsPath string
 	FrontendDir  string
 	Log          *applog.Hub
+}
+
+const multipartMemoryLimit int64 = 32 << 20
+
+func parseMultipartForm(w http.ResponseWriter, r *http.Request, maxBytes int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	return r.ParseMultipartForm(multipartMemoryLimit)
+}
+
+func multipartErrorStatus(err error) int {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }
 
 type Server struct {

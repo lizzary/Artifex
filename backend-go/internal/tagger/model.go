@@ -1,6 +1,9 @@
 package tagger
 
 import (
+	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,18 +17,28 @@ import (
 )
 
 const (
-	DefaultModelRepo = "lizzary111/wd-eva02-large-tagger-v3"
-	DefaultONNX      = "wd-eva02-large-tagger-v3.onnx"
-	DefaultTags      = "tags.csv"
+	DefaultModelRepo     = "lizzary111/wd-eva02-large-tagger-v3"
+	DefaultModelRevision = "5f605f53bd4e28e3c80699fad6391ea94c5ae7d4"
+	DefaultONNX          = "wd-eva02-large-tagger-v3.onnx"
+	DefaultONNXData      = "wd-eva02-large-tagger-v3.onnx.data"
+	DefaultTags          = "tags.csv"
 )
 
-var defaultModelFiles = []string{
-	"wd-eva02-large-tagger-v3.onnx",
-	"wd-eva02-large-tagger-v3.onnx.data",
-	"tags.csv",
+var ErrDefaultModelIncomplete = errors.New("default model is incomplete")
+
+type modelFile struct {
+	name   string
+	size   int64
+	sha256 string
 }
 
-var hfBaseURL = "https://huggingface.co/%s/resolve/main/%s"
+var defaultModelFiles = []modelFile{
+	{name: DefaultONNX, size: 2_397_717, sha256: "1d57a41fdb9fc2d9dd2d6caedbab360668e357f9e4d4c630520b19a01ed0c9c9"},
+	{name: DefaultONNXData, size: 1_262_538_752, sha256: "d6066bd40bf16b984003521d3fed26e8976b859523c6a6ec7e2b9d93d1019737"},
+	{name: DefaultTags, size: 308_468, sha256: "298633d94d0031d2081c0893f29c82eab7f0df00b08483ba8f29d1e979441217"},
+}
+
+var hfBaseURL = "https://huggingface.co/%s/resolve/%s/%s"
 
 var (
 	activeModel string
@@ -56,8 +69,11 @@ func SetUseGPU(enabled bool) {
 // ── Model availability ───────────────────────────────────────────────────
 
 func IsModelCached(modelsDir string) bool {
-	_, err := os.Stat(filepath.Join(modelsDir, "default", DefaultONNX))
-	return err == nil
+	return validateDefaultModelDir(filepath.Join(modelsDir, "default"), false) == nil
+}
+
+func ValidateDefaultModel(modelsDir string) error {
+	return validateDefaultModelDir(filepath.Join(modelsDir, "default"), true)
 }
 
 // DeleteDefaultModel removes the entire <modelsDir>/default directory so the
@@ -78,23 +94,38 @@ func DeleteDefaultModel(modelsDir string) error {
 	return nil
 }
 
-func DownloadModel(modelsDir string) error {
-	defaultDir := filepath.Join(modelsDir, "default")
-	os.MkdirAll(defaultDir, 0755)
+func DownloadModel(ctx context.Context, modelsDir string) error {
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		return fmt.Errorf("failed to prepare model directory: %w", err)
+	}
+	stagingDir, err := os.MkdirTemp(modelsDir, ".default-download-")
+	if err != nil {
+		return fmt.Errorf("failed to create model staging directory: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
 
 	applog.Info("model", "downloading default model from %s", DefaultModelRepo)
-	for _, filename := range defaultModelFiles {
-		dest := filepath.Join(defaultDir, filename)
-		if _, err := os.Stat(dest); err == nil {
-			applog.Info("model", "%s already cached", filename)
-			continue
-		}
-		applog.Info("model", "downloading %s", filename)
-		url := fmt.Sprintf(hfBaseURL, DefaultModelRepo, filename)
-		if err := downloadFile(url, dest); err != nil {
-			return fmt.Errorf("failed to download %s: %w", filename, err)
+	for _, file := range defaultModelFiles {
+		applog.Info("model", "downloading %s", file.name)
+		url := fmt.Sprintf(hfBaseURL, DefaultModelRepo, DefaultModelRevision, file.name)
+		if err := downloadFile(ctx, url, filepath.Join(stagingDir, file.name), file); err != nil {
+			return fmt.Errorf("failed to download %s: %w", file.name, err)
 		}
 	}
+
+	if GetActiveModel() == "" {
+		clearTaggerCache()
+	}
+	defaultDir := filepath.Join(modelsDir, "default")
+	backupDir := stagingDir + ".previous"
+	if err := os.Rename(defaultDir, backupDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to replace default model: %w", err)
+	}
+	if err := os.Rename(stagingDir, defaultDir); err != nil {
+		_ = os.Rename(backupDir, defaultDir)
+		return fmt.Errorf("failed to activate downloaded model: %w", err)
+	}
+	_ = os.RemoveAll(backupDir)
 	applog.Info("model", "default model download complete")
 	return nil
 }
@@ -102,11 +133,7 @@ func DownloadModel(modelsDir string) error {
 func ListAvailableModels(modelsDir string) []models.ModelInfo {
 	result := make([]models.ModelInfo, 0)
 
-	defaultONNX := filepath.Join(modelsDir, "default", DefaultONNX)
-	cached := false
-	if _, err := os.Stat(defaultONNX); err == nil {
-		cached = true
-	}
+	cached := IsModelCached(modelsDir)
 	result = append(result, models.ModelInfo{
 		Name:   "wd-eva02-large-tagger-v3 (Default)",
 		Type:   "default",
@@ -137,8 +164,39 @@ func ListAvailableModels(modelsDir string) []models.ModelInfo {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+func validateDefaultModelDir(dir string, verifyHash bool) error {
+	for _, file := range defaultModelFiles {
+		path := filepath.Join(dir, file.name)
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("%w: %s is missing", ErrDefaultModelIncomplete, file.name)
+		}
+		if info.IsDir() || info.Size() != file.size {
+			return fmt.Errorf("%w: %s has an unexpected size", ErrDefaultModelIncomplete, file.name)
+		}
+		if !verifyHash {
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("%w: cannot read %s: %v", ErrDefaultModelIncomplete, file.name, err)
+		}
+		hash := sha256.New()
+		_, copyErr := io.Copy(hash, f)
+		closeErr := f.Close()
+		if copyErr != nil || closeErr != nil || fmt.Sprintf("%x", hash.Sum(nil)) != file.sha256 {
+			return fmt.Errorf("%w: %s failed checksum validation", ErrDefaultModelIncomplete, file.name)
+		}
+	}
+	return nil
+}
+
+func downloadFile(ctx context.Context, url, dest string, expected modelFile) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -147,13 +205,34 @@ func downloadFile(url, dest string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+	if resp.ContentLength >= 0 && resp.ContentLength != expected.size {
+		return fmt.Errorf("%w: server reported an unexpected size", ErrDefaultModelIncomplete)
+	}
 
-	f, err := os.Create(dest)
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	keep := false
+	defer func() {
+		_ = f.Close()
+		if !keep {
+			_ = os.Remove(dest)
+		}
+	}()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	hash := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(f, hash), io.LimitReader(resp.Body, expected.size+1))
+	closeErr := f.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if written != expected.size || fmt.Sprintf("%x", hash.Sum(nil)) != expected.sha256 {
+		return fmt.Errorf("%w: downloaded content failed validation", ErrDefaultModelIncomplete)
+	}
+	keep = true
+	return nil
 }

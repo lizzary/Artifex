@@ -17,12 +17,7 @@ func coerceIntSlice(raw interface{}) []int {
 	}
 	out := make([]int, 0, len(arr))
 	for _, v := range arr {
-		switch n := v.(type) {
-		case float64:
-			out = append(out, int(n))
-		case int:
-			out = append(out, n)
-		case int64:
+		if n, ok := v.(float64); ok {
 			out = append(out, int(n))
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -160,6 +161,10 @@ func Extract(imagePath string, img image.Image) (map[string]interface{}, error) 
 	if workflowStr, ok := chunks["workflow"]; ok {
 		json.Unmarshal([]byte(workflowStr), &workflowObj)
 	}
+	promptParams := extractParametersFromPrompt(promptObj)
+	workflowParams := extractParametersFromWorkflow(workflowObj)
+	heuristicPositive, heuristicNegative := extractPromptsHeuristic(promptObj)
+	workflowPositive, workflowNegative := extractPromptsFromWorkflow(workflowObj)
 
 	// Find sampler node ID
 	var samplerNodeID string
@@ -204,34 +209,32 @@ func Extract(imagePath string, img image.Image) (map[string]interface{}, error) 
 		positive = extractPositivePromptFromPrompt(promptObj, samplerNodeID)
 	}
 	if positive == "" && promptObj != nil {
-		positive, _ = extractPromptsHeuristic(promptObj)
+		positive = heuristicPositive
 	}
 	if positive == "" && workflowObj != nil {
-		positive, _ = extractPromptsFromWorkflow(workflowObj)
+		positive = workflowPositive
 	}
 	result["Positive Prompt"] = positive
 
 	// Negative Prompt
 	negative := ""
 	if promptObj != nil {
-		_, negative = extractPromptsHeuristic(promptObj)
+		negative = heuristicNegative
 	}
 	if negative == "" && workflowObj != nil {
-		_, negative = extractPromptsFromWorkflow(workflowObj)
+		negative = workflowNegative
 	}
 	result["Negative Prompt"] = negative
 
 	// Sampler
 	sampler := ""
 	if promptObj != nil {
-		params := extractParametersFromPrompt(promptObj)
-		if s, ok := params["sampler_name"]; ok {
+		if s, ok := promptParams["sampler_name"]; ok {
 			sampler = s
 		}
 	}
 	if sampler == "" && workflowObj != nil {
-		wfParams := extractParametersFromWorkflow(workflowObj)
-		if s, ok := wfParams["sampler"]; ok {
+		if s, ok := workflowParams["sampler"]; ok {
 			sampler = s
 		}
 	}
@@ -240,14 +243,12 @@ func Extract(imagePath string, img image.Image) (map[string]interface{}, error) 
 	// Scheduler
 	scheduler := ""
 	if promptObj != nil {
-		params := extractParametersFromPrompt(promptObj)
-		if s, ok := params["scheduler"]; ok {
+		if s, ok := promptParams["scheduler"]; ok {
 			scheduler = s
 		}
 	}
 	if scheduler == "" && workflowObj != nil {
-		wfParams := extractParametersFromWorkflow(workflowObj)
-		if s, ok := wfParams["scheduler"]; ok {
+		if s, ok := workflowParams["scheduler"]; ok {
 			scheduler = s
 		}
 	}
@@ -256,14 +257,12 @@ func Extract(imagePath string, img image.Image) (map[string]interface{}, error) 
 	// Steps
 	steps := ""
 	if promptObj != nil {
-		params := extractParametersFromPrompt(promptObj)
-		if s, ok := params["steps"]; ok {
+		if s, ok := promptParams["steps"]; ok {
 			steps = s
 		}
 	}
 	if steps == "" && workflowObj != nil {
-		wfParams := extractParametersFromWorkflow(workflowObj)
-		if s, ok := wfParams["steps"]; ok {
+		if s, ok := workflowParams["steps"]; ok {
 			steps = s
 		}
 	}
@@ -272,14 +271,12 @@ func Extract(imagePath string, img image.Image) (map[string]interface{}, error) 
 	// CFG Scale
 	cfg := ""
 	if promptObj != nil {
-		params := extractParametersFromPrompt(promptObj)
-		if c, ok := params["cfg"]; ok {
+		if c, ok := promptParams["cfg"]; ok {
 			cfg = c
 		}
 	}
 	if cfg == "" && workflowObj != nil {
-		wfParams := extractParametersFromWorkflow(workflowObj)
-		if c, ok := wfParams["cfg"]; ok {
+		if c, ok := workflowParams["cfg"]; ok {
 			cfg = c
 		}
 	}
@@ -695,7 +692,7 @@ func extractSeedFromWorkflow(workflowObj map[string]interface{}) string {
 			if m, ok := inp.(map[string]interface{}); ok {
 				if getStringField(m, "name") == "seed" {
 					if link, ok := toFloat(m["link"]); ok {
-						upstream := findSourceNode(nodes, link, map[string]bool{})
+						upstream := findSourceNode(nodes, link)
 						if upstream != nil {
 							nt := getStringField(upstream, "type")
 							wv := getMapSliceField(upstream, "widgets_values")
@@ -935,20 +932,14 @@ func calcPriority(ct, title, polarity string) int {
 }
 
 func sortCandidates(c []candidate) {
-	for i := 0; i < len(c); i++ {
-		for j := i + 1; j < len(c); j++ {
-			if c[i].priority < c[j].priority {
-				c[i], c[j] = c[j], c[i]
-			}
-		}
-	}
+	sort.SliceStable(c, func(i, j int) bool { return c[i].priority > c[j].priority })
 }
 
 // ── Workflow Graph Helpers ────────────────────────────────────────────────
 
 // findSourceNode traces node output links to find the upstream source node
 // that produces the given link_id. Returns nil if not found.
-func findSourceNode(nodes []interface{}, linkID float64, visited map[string]bool) map[string]interface{} {
+func findSourceNode(nodes []interface{}, linkID float64) map[string]interface{} {
 	for _, node := range nodes {
 		n, ok := node.(map[string]interface{})
 		if !ok {
@@ -991,14 +982,8 @@ func resolvePromptFromWorkflowGraph(nodes []interface{}, node map[string]interfa
 		}
 	}
 
-	// Check inputs (map format)
+	// Check inputs and follow references (map format)
 	if inputs := getMapField(node, "inputs"); inputs != nil {
-		for _, key := range []string{"text", "prompt"} {
-			if s, ok := inputs[key].(string); ok && strings.TrimSpace(s) != "" {
-				found = append(found, s)
-			}
-		}
-		// Follow reference links
 		for _, key := range []string{"text", "prompt", "positive", "negative"} {
 			val := inputs[key]
 			if arr, ok := val.([]interface{}); ok && len(arr) > 0 {
@@ -1026,7 +1011,7 @@ func resolvePromptFromWorkflowGraph(nodes []interface{}, node map[string]interfa
 				name := getStringField(m, "name")
 				if name == "text" || name == "prompt" || name == "positive" || name == "negative" {
 					if link, ok := toFloat(m["link"]); ok {
-						upstream := findSourceNode(nodes, link, map[string]bool{})
+						upstream := findSourceNode(nodes, link)
 						if upstream != nil {
 							if result := resolvePromptFromWorkflowGraph(nodes, upstream, visited); result != "" {
 								found = append(found, result)
@@ -1086,7 +1071,7 @@ func extractPromptsFromWorkflow(workflowObj map[string]interface{}) (string, str
 	var positive, negative string
 	if posInput != nil {
 		if link, ok := toFloat(posInput["link"]); ok {
-			posNode := findSourceNode(nodes, link, map[string]bool{})
+			posNode := findSourceNode(nodes, link)
 			if posNode != nil {
 				positive = resolvePromptFromWorkflowGraph(nodes, posNode, map[string]bool{})
 			}
@@ -1094,7 +1079,7 @@ func extractPromptsFromWorkflow(workflowObj map[string]interface{}) (string, str
 	}
 	if negInput != nil {
 		if link, ok := toFloat(negInput["link"]); ok {
-			negNode := findSourceNode(nodes, link, map[string]bool{})
+			negNode := findSourceNode(nodes, link)
 			if negNode != nil {
 				negative = resolvePromptFromWorkflowGraph(nodes, negNode, map[string]bool{})
 			}
@@ -1138,17 +1123,6 @@ func extractParametersFromPrompt(promptObj map[string]interface{}) map[string]st
 					params[key] = formatFloat(v)
 				} else if s, ok := inputs[key].(string); ok {
 					params[key] = s
-				}
-			}
-		}
-		if modelLoaderTypes[ct] {
-			if ckpt, ok := inputs["ckpt_name"]; ok {
-				if s, ok := ckpt.(string); ok {
-					params["model"] = s
-				} else if m, ok := ckpt.(map[string]interface{}); ok {
-					if content, ok := m["content"].(string); ok {
-						params["model"] = content
-					}
 				}
 			}
 		}

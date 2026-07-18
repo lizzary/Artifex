@@ -190,24 +190,22 @@ func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDB()
-
-	var exists bool
-	db.QueryRow("SELECT EXISTS(SELECT 1 FROM groups WHERE id = ?)", groupID).Scan(&exists)
-	if !exists {
+	result, err := db.Exec("DELETE FROM groups WHERE id = ?", groupID)
+	if err != nil {
+		writeError(w, 500, "Failed to delete group")
+		return
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, 500, "Failed to delete group")
+		return
+	}
+	if deleted == 0 {
 		writeError(w, 404, "Group not found")
 		return
 	}
 
-	// Unset cover references, delete illustrations, delete group
-	db.Exec("UPDATE groups SET cover_illustration_id = NULL WHERE id = ?", groupID)
-	db.Exec("DELETE FROM illustrations WHERE group_id = ?", groupID)
-	db.Exec("DELETE FROM groups WHERE id = ?", groupID)
-
-	// Remove uploaded files
-	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
-	if info, err := os.Stat(groupDir); err == nil && info.IsDir() {
-		os.RemoveAll(groupDir)
-	}
+	_ = os.RemoveAll(filepath.Join(s.UploadsDir(), strconv.Itoa(groupID)))
 
 	w.WriteHeader(204)
 }

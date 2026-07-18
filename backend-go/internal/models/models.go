@@ -54,16 +54,7 @@ type IllustrationTagsResult struct {
 	Missing []int                  `json:"missing"`
 }
 
-type IllustrationListResult struct {
-	Items  []IllustrationResponse `json:"items"`
-	Total  int                    `json:"total"`
-	Offset int                    `json:"offset"`
-	Limit  int                    `json:"limit"`
-}
-
-// ── Search ───────────────────────────────────────────────────────────────
-
-type SearchResult struct {
+type IllustrationPage struct {
 	Items  []IllustrationResponse `json:"items"`
 	Total  int                    `json:"total"`
 	Offset int                    `json:"offset"`
@@ -98,17 +89,6 @@ type ModelUploadResponse struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
-}
-
-// ── Settings ─────────────────────────────────────────────────────────────
-
-type Settings struct {
-	AutoTag              bool                   `json:"auto_tag"`
-	GPUEnabled           bool                   `json:"gpu_enabled"`
-	ActiveModel          string                 `json:"active_model,omitempty"`
-	UploadConflictPolicy string                 `json:"upload_conflict_policy"`
-	GroupOrder           []int                  `json:"group_order"`
-	GroupConfigs         map[string]interface{} `json:"group_configs"`
 }
 
 // ── Upload Result ────────────────────────────────────────────────────────

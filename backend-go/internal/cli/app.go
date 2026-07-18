@@ -18,7 +18,6 @@ import (
 type BootResult struct {
 	URL            string
 	DatabasePath   string
-	FrontendPath   string
 	FrontendReady  bool
 	TaggerStatus   string
 	TaggerWarning  bool
@@ -250,7 +249,6 @@ func (m *model) execute(command string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.portAttempts = attempts
-		m.cfg.PortAttempts = attempts
 		m.notice = fmt.Sprintf("Port attempt limit set to %d. It will apply after restart.", attempts)
 	case "/theme":
 		if len(parts) != 2 {
@@ -317,7 +315,7 @@ func (m *model) renderHome() string {
 		leftWidth = 38
 	}
 
-	art := strings.Split(renderFrameCrab(p, !wide), "\n")
+	art := strings.Split(renderFrameCrab(p), "\n")
 	artWidth := 0
 	for _, line := range art {
 		artWidth = max(artWidth, lipgloss.Width(line))

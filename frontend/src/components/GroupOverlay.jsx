@@ -331,22 +331,11 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   };
 
   const handleModelDownload = async () => {
-    setShowModelModal(false);
     if (!pendingFiles) return;
     const files = pendingFiles;
+    await downloadModel();
+    setShowModelModal(false);
     setPendingFiles(null);
-    setUploading(true);
-    setUploadProgress({ current: 0, total: files.length, filename: '', stage: 'downloading' });
-    try {
-      await downloadModel();
-    } catch (err) {
-      setError(err.message || t('modelDownload.error.downloadFailed'));
-      setUploading(false);
-      setUploadProgress(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-    // Model downloaded, now upload with auto-tag
     await doUpload(files, false);
   };
 

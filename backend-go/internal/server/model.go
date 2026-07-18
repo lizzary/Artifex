@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,24 +12,29 @@ import (
 	"artifex-backend/internal/tagger"
 )
 
+const (
+	maxModelUploadBytes  int64 = 2 << 30
+	maxModelRequestBytes       = maxModelUploadBytes + 1<<20
+)
+
 // ── Model Status ────────────────────────────────────────────────────────
 
 func (s *Server) ModelStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, models.ModelStatusResponse{
-		Cached: tagger.IsModelCached(s.ModelsDir()),
+		Cached: tagger.IsModelCached(s.ModelsDir()) && tagger.IsTaggerReady(),
 	})
 }
 
 // ── Model Download ──────────────────────────────────────────────────────
 
 func (s *Server) ModelDownload(w http.ResponseWriter, r *http.Request) {
-	if err := tagger.DownloadModel(s.ModelsDir()); err != nil {
+	if err := tagger.DownloadModel(r.Context(), s.ModelsDir()); err != nil {
 		writeError(w, 500, "Model download failed: "+err.Error())
 		return
 	}
-	// Reload tagger so the newly downloaded model takes effect immediately
 	if err := tagger.LoadTagger(s.ModelsDir()); err != nil {
-		s.logger().Warn("tagger", "reload after download failed: %v", err)
+		writeError(w, 500, "Downloaded model could not be loaded: "+err.Error())
+		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
@@ -56,10 +63,14 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 // ── Upload Model ────────────────────────────────────────────────────────
 
 func (s *Server) UploadModel(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		writeError(w, 400, "Failed to parse upload")
+	if err := parseMultipartForm(w, r, maxModelRequestBytes); err != nil {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+		writeError(w, multipartErrorStatus(err), "Failed to parse upload")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -79,29 +90,46 @@ func (s *Server) UploadModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Only .onnx and .csv files are accepted")
 		return
 	}
+	if header.Size > maxModelUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "Model exceeds the 2 GiB upload limit")
+		return
+	}
 
 	userModelDir := filepath.Join(s.ModelsDir(), "user_model")
-	os.MkdirAll(userModelDir, 0755)
+	if err := os.MkdirAll(userModelDir, 0755); err != nil {
+		writeError(w, 500, "Failed to prepare model directory")
+		return
+	}
 
 	dest := filepath.Join(userModelDir, safeName)
-	if _, err := os.Stat(dest); err == nil {
+	destFile, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if errors.Is(err, os.ErrExist) {
 		writeError(w, 409, "File '"+safeName+"' already exists")
 		return
 	}
-
-	buf := make([]byte, header.Size)
-	if _, err := file.Read(buf); err != nil {
-		writeError(w, 500, "Failed to read file")
+	if err != nil {
+		writeError(w, 500, "Failed to create model file")
 		return
 	}
+	keep := false
+	defer func() {
+		_ = destFile.Close()
+		if !keep {
+			_ = os.Remove(dest)
+		}
+	}()
 
-	if err := os.WriteFile(dest, buf, 0644); err != nil {
+	fileSize, copyErr := io.Copy(destFile, io.LimitReader(file, maxModelUploadBytes+1))
+	closeErr := destFile.Close()
+	if copyErr != nil || closeErr != nil {
 		writeError(w, 500, "Failed to save file")
 		return
 	}
-
-	info, _ := os.Stat(dest)
-	fileSize := info.Size()
+	if fileSize > maxModelUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "Model exceeds the 2 GiB upload limit")
+		return
+	}
+	keep = true
 	writeJSON(w, 201, models.ModelUploadResponse{
 		Name: safeName,
 		Type: "user",

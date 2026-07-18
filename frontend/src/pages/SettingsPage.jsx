@@ -44,6 +44,7 @@ export default function SettingsPage() {
   const [downloading, setDownloading] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [confirmResetDefault, setConfirmResetDefault] = useState(false);
+  const [modelDownloadError, setModelDownloadError] = useState('');
   const modelDropdownRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -114,13 +115,14 @@ export default function SettingsPage() {
   };
 
   const handleModelDownload = async () => {
+    setModelDownloadError('');
     setDownloading(true);
     try {
       await downloadModel();
       addToast(t('settings.toast.saved'), 'success');
       fetchModels(); // refresh cached status
-    } catch {
-      addToast(t('settings.toast.saveFailed'), 'error');
+    } catch (err) {
+      setModelDownloadError(err.message || t('modelDownload.error.downloadFailed'));
     } finally {
       setDownloading(false);
     }
@@ -494,6 +496,17 @@ export default function SettingsPage() {
           onConfirm={handleDefaultModelReset}
           onCancel={() => setConfirmResetDefault(false)}
           danger
+        />
+      )}
+
+      {modelDownloadError && (
+        <ConfirmModal
+          title={t('modelDownload.error.incompleteTitle')}
+          message={t('modelDownload.error.incompleteDescriptionWithDetail', { detail: modelDownloadError })}
+          confirmText={t('modelDownload.error.redownload')}
+          cancelText={t('modelDownload.error.close')}
+          onConfirm={handleModelDownload}
+          onCancel={() => setModelDownloadError('')}
         />
       )}
     </div>

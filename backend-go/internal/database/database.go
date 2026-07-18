@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -84,32 +83,6 @@ func createSchema() error {
 
 	_, err := DB.Exec(schema)
 	return err
-}
-
-// SplitTags splits a comma-separated tags string into a slice of unique, sorted tag names.
-func SplitTags(tags string) []string {
-	if strings.TrimSpace(tags) == "" {
-		return nil
-	}
-	parts := strings.Split(tags, ",")
-	seen := make(map[string]bool)
-	var result []string
-	for _, p := range parts {
-		t := strings.TrimSpace(p)
-		if t != "" && !seen[t] {
-			seen[t] = true
-			result = append(result, t)
-		}
-	}
-	// Sort for deterministic output
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i] > result[j] {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
-	return result
 }
 
 func GetDB() *sql.DB {

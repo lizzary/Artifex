@@ -399,13 +399,18 @@ const translations = {
 
     // ModelDownloadModal
     'modelDownload.title': 'AI Tagging Model Required',
-    'modelDownload.description': 'The AI auto-tagging model (~800 MB) needs to be downloaded before uploading images with auto-tag enabled. You can skip this step — images will still be uploaded but without automatic tags.',
+    'modelDownload.description': 'The AI auto-tagging model (~1.2 GB) needs to be downloaded before uploading images with auto-tag enabled. You can skip this step — images will still be uploaded but without automatic tags.',
     'modelDownload.download': 'Download Model',
     'modelDownload.skip': 'Skip Auto-Tag',
     'modelDownload.downloading.title': 'Downloading AI Model',
-    'modelDownload.downloading.description': 'The model is being downloaded (~800 MB). This may take a few minutes depending on your network speed. Please wait...',
+    'modelDownload.downloading.description': 'The model is being downloaded (~1.2 GB). This may take a few minutes depending on your network speed. Please wait...',
     'modelDownload.downloading.progress': 'Downloading model, please wait...',
     'modelDownload.error.downloadFailed': 'Model download failed. Please try again or skip auto-tagging.',
+    'modelDownload.error.incompleteTitle': 'Model download is incomplete',
+    'modelDownload.error.incompleteDescription': 'The model was not fully downloaded or did not pass its integrity check, so the image upload was stopped. Please download the model again.',
+    'modelDownload.error.incompleteDescriptionWithDetail': 'The model was not fully downloaded or did not pass its integrity check. Please download it again. Details: {detail}',
+    'modelDownload.error.redownload': 'Download Again',
+    'modelDownload.error.close': 'Close',
     'groupOverlay.upload.downloadingModel': 'Downloading AI model...',
 
     // SettingsPage
@@ -436,7 +441,7 @@ const translations = {
     'settings.indexing.modelDeleteConfirm': 'Delete',
     'settings.indexing.modelNoUserModels': 'No user models uploaded',
     'settings.indexing.modelDownloadTitle': 'Download Default Model',
-    'settings.indexing.modelDownloadDesc': 'Download the WD EVA02-Large tagger model (~800 MB) from HuggingFace.',
+    'settings.indexing.modelDownloadDesc': 'Download the WD EVA02-Large tagger model (~1.2 GB) from HuggingFace.',
     'settings.indexing.modelDownload': 'Download',
     'settings.indexing.modelDownloading': 'Downloading...',
     'settings.indexing.modelResetTitle': 'Reset Default Model',
@@ -864,13 +869,18 @@ const translations = {
 
     // ModelDownloadModal
     'modelDownload.title': '需要 AI 标签模型',
-    'modelDownload.description': '上传图片并启用自动标签功能前，需要先下载 AI 自动标签模型（约 800 MB）。您也可以跳过此步骤——图片仍会上传，但不会自动生成标签。',
+    'modelDownload.description': '上传图片并启用自动标签功能前，需要先下载 AI 自动标签模型（约 1.2 GB）。您也可以跳过此步骤——图片仍会上传，但不会自动生成标签。',
     'modelDownload.download': '下载模型',
     'modelDownload.skip': '跳过自动标签',
     'modelDownload.downloading.title': '正在下载 AI 模型',
-    'modelDownload.downloading.description': '模型正在下载中（约 800 MB），根据您的网络速度可能需要几分钟，请耐心等待……',
+    'modelDownload.downloading.description': '模型正在下载中（约 1.2 GB），根据您的网络速度可能需要几分钟，请耐心等待……',
     'modelDownload.downloading.progress': '正在下载模型，请稍候……',
     'modelDownload.error.downloadFailed': '模型下载失败，请重试或跳过自动标签。',
+    'modelDownload.error.incompleteTitle': '模型下载不完整',
+    'modelDownload.error.incompleteDescription': '模型未完整下载或未通过完整性校验，图片上传已中断。请重新下载模型。',
+    'modelDownload.error.incompleteDescriptionWithDetail': '模型未完整下载或未通过完整性校验，请重新下载。错误详情：{detail}',
+    'modelDownload.error.redownload': '重新下载',
+    'modelDownload.error.close': '关闭',
     'groupOverlay.upload.downloadingModel': '正在下载 AI 模型……',
 
     // SettingsPage
@@ -901,7 +911,7 @@ const translations = {
     'settings.indexing.modelDeleteConfirm': '删除',
     'settings.indexing.modelNoUserModels': '暂无用户上传的模型',
     'settings.indexing.modelDownloadTitle': '下载默认模型',
-    'settings.indexing.modelDownloadDesc': '从 HuggingFace 下载 WD EVA02-Large 标签模型（约 800 MB）。',
+    'settings.indexing.modelDownloadDesc': '从 HuggingFace 下载 WD EVA02-Large 标签模型（约 1.2 GB）。',
     'settings.indexing.modelDownload': '下载',
     'settings.indexing.modelDownloading': '下载中...',
     'settings.indexing.modelResetTitle': '重置默认模型',
