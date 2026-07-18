@@ -9,8 +9,9 @@ import {
 import { backendUrl } from '../api/url';
 import { useLocale } from '../contexts/LocaleContext';
 import { getIllustrationMemberships, groupDisplayName } from '../utils/grouping';
-import { getAspectFitPreviewHeight } from '../utils/illustrationPreview';
+import { clamp, getAspectFitPreviewHeight } from '../utils/illustrationPreview';
 import ColorBoardSelectionDock from './ColorBoardSelectionDock';
+import IllustrationPreviewImage from './IllustrationPreviewImage';
 import InferenceIcon from './InferenceIcon';
 
 const CARD_SIZE = 78;
@@ -22,10 +23,6 @@ const PREVIEW_MEDIA_WIDTH = 240;
 const PREVIEW_MEDIA_MIN_HEIGHT = 80;
 const PREVIEW_MEDIA_MAX_HEIGHT = 360;
 const PREVIEW_CHROME_HEIGHT = 64;
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function circleRadius(itemCount) {
   return clamp(230 + Math.sqrt(Math.max(itemCount, 1)) * 48, 258, 700);
@@ -788,22 +785,11 @@ export default function ColorGroupBoard({
           className="pointer-events-none fixed z-50 w-64 overflow-hidden rounded-2xl border border-edge-primary bg-surface-secondary/95 p-2 shadow-2xl shadow-overlay/25 backdrop-blur-xl"
           style={{ left: previewLeft, top: previewTop }}
         >
-          <div
-            className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-surface-tertiary"
-            style={{ height: previewMediaHeight }}
-          >
-            <img
-              key={preview.illustration.id}
-              src={backendUrl(`${preview.illustration.thumbnail_url}?quality=${quality === 'low' ? 'normal' : quality}`)}
-              alt={preview.illustration.original_filename}
-              className="h-full w-full object-contain"
-              onError={(event) => {
-                if (event.currentTarget.dataset.lowQualityFallback) return;
-                event.currentTarget.dataset.lowQualityFallback = 'true';
-                event.currentTarget.src = backendUrl(`${preview.illustration.thumbnail_url}?quality=low`);
-              }}
-            />
-          </div>
+          <IllustrationPreviewImage
+            illustration={preview.illustration}
+            quality={quality}
+            height={previewMediaHeight}
+          />
           <div className="flex items-center gap-2 px-1 pb-1 pt-2">
             <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
               preview.membership?.source === 'manual' ? 'bg-accent/15 text-accent' : 'bg-surface-tertiary text-content-muted'

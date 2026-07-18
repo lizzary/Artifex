@@ -6,7 +6,13 @@ import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize'
 import useOriginalRatio from '../hooks/useOriginalRatio';
 import useDownloadConfig from '../hooks/useDownloadConfig';
 import {
-  checkModelStatus, deleteIllustration, deleteIllustrations as deleteIllustrationBatch,
+  filterIllustrations,
+  flattenVisibleGroups,
+  useGroupBy,
+  useIllustrationSelection,
+} from '../hooks/useGalleryView';
+import {
+  checkModelStatus, deleteIllustrations,
   downloadModel, getSettings, listAllIllustrations, retagIllustrations,
   updateGroup, updateIllustrationTags, uploadSingleIllustration,
 } from '../api';
@@ -15,13 +21,13 @@ import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
 import IllustrationCard from './IllustrationCard';
 import ColorGroup from './ColorGroup';
-import DropdownSelect from './DropdownSelect';
+import SettingsSelect from './SettingsSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
 import ColorGroupBoard from './ColorGroupBoard';
 import ModelDownloadModal from './ModelDownloadModal';
 import UploadSummaryModal from './UploadSummaryModal';
-import useGroupConfig from '../hooks/useGroupConfig';
+import useGroupConfig, { removeManualAssignmentsForIllustrations } from '../hooks/useGroupConfig';
 import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { groupIllustrations, paginateIllustrationGroups } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
@@ -42,8 +48,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [coverTarget, setCoverTarget] = useState(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [lastClickedId, setLastClickedId] = useState(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [retagging, setRetagging] = useState(false);
   const [retagConfirm, setRetagConfirm] = useState(false);
@@ -51,10 +55,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [conflictPolicy, setConflictPolicy] = useState('save_all');
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [groupBy, setGroupBy] = useState(() => {
-    try { return localStorage.getItem('gallery-group-by') === 'none' ? 'none' : (localStorage.getItem('gallery-group-by') ? 'mixed' : 'none'); }
-    catch { return 'none'; }
-  });
+  const [groupBy, setGroupBy] = useGroupBy();
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
   const [showColorBoard, setShowColorBoard] = useState(false);
@@ -98,8 +99,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   ], [t]);
 
   const groupScope = `group_${group.id}`;
-  const activeConfig = useGroupConfig('mixed', groupScope);
-  const setManualGroupIds = activeConfig.setManualGroupIds;
+  const activeConfig = useGroupConfig(groupScope);
+  const { removeManualGroupIds, setManualGroupIds } = activeConfig;
 
   const fetchIllustrations = useCallback(async () => {
     try {
@@ -115,8 +116,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   useEffect(() => {
     setLoading(true);
-    setSelectedIds(new Set());
-    setLastClickedId(null);
     setCurrentPage(1);
     fetchIllustrations();
   }, [fetchIllustrations]);
@@ -166,24 +165,10 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   // ── Client-side filter (tags + prompts) ──────────────
 
-  const filteredIllustrations = useMemo(() => {
-    if (!filterQuery.trim()) return sortedIllustrations;
-    const q = filterQuery.trim().toLowerCase();
-    return sortedIllustrations.filter((ill) => {
-      const tags = (ill.tags || '').toLowerCase();
-      const ext = ill.extended_data || {};
-      const pos = (ext['Positive Prompt'] || '').toLowerCase();
-      const neg = (ext['Negative Prompt'] || '').toLowerCase();
-      switch (filterScope) {
-        case 'tag':
-          return tags.includes(q);
-        case 'prompt':
-          return pos.includes(q) || neg.includes(q);
-        default:
-          return tags.includes(q) || pos.includes(q) || neg.includes(q);
-      }
-    });
-  }, [sortedIllustrations, filterQuery, filterScope]);
+  const filteredIllustrations = useMemo(
+    () => filterIllustrations(sortedIllustrations, filterQuery, filterScope),
+    [filterQuery, filterScope, sortedIllustrations],
+  );
 
   // ── Grouping ───────────────────────────────────────────
 
@@ -196,7 +181,14 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       activeConfig.matchOrder,
       activeConfig.manualAssignments,
     );
-  }, [groupBy, filteredIllustrations, activeConfig]);
+  }, [
+    activeConfig.manualAssignments,
+    activeConfig.matchOrder,
+    activeConfig.otherColor,
+    activeConfig.pairs,
+    filteredIllustrations,
+    groupBy,
+  ]);
 
   const groupedIllustrationIds = useMemo(
     () => groupedIllustrations?.map((item) => item.id) || [],
@@ -241,17 +233,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   // Flat list matching visual order (for index lookups in Shift+Click / Lightbox)
   const displayedIllustrations = useMemo(() => {
-    if (paginatedGroupedIllustrations) {
-      const flat = [];
-      for (const g of paginatedGroupedIllustrations) {
-        if (!collapsedGroups.has(g.id)) {
-          flat.push(...g.items);
-        }
-      }
-      return flat;
-    }
-    return paginatedIllustrations;
+    return flattenVisibleGroups(paginatedGroupedIllustrations, collapsedGroups)
+      || paginatedIllustrations;
   }, [paginatedGroupedIllustrations, collapsedGroups, paginatedIllustrations]);
+
+  const {
+    selectedIds,
+    clearSelection,
+    removeFromSelection,
+    handleCardClick,
+    handleCtrlClick,
+    handleShiftClick,
+  } = useIllustrationSelection(displayedIllustrations, setLightboxIndex);
+
+  useEffect(() => {
+    clearSelection();
+  }, [clearSelection, group.id]);
 
   const toggleGroupCollapse = useCallback((groupId) => {
     setCollapsedGroups((prev) => {
@@ -269,8 +266,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const doUpload = useCallback(async (files, skipAutoTag) => {
     setUploading(true);
     setError('');
-    setSelectedIds(new Set());
-    setLastClickedId(null);
+    clearSelection();
     const total = files.length;
     const summary = { added: [], skipped: [], overwritten: [], failed: [] };
     for (let i = 0; i < total; i++) {
@@ -278,11 +274,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       setUploadProgress({ current: i + 1, total, filename: file.name, stage: 'uploading' });
       try {
         const result = await uploadSingleIllustration(group.id, file, skipAutoTag, conflictPolicy);
-        // Backend returns { added, skipped, overwritten, failed }. Be defensive
-        // in case an older backend ever returns the legacy array shape.
-        if (Array.isArray(result)) {
-          summary.added.push(...result);
-        } else if (result) {
+        if (result) {
           if (result.added) summary.added.push(...result.added);
           if (result.skipped) summary.skipped.push(...result.skipped);
           if (result.overwritten) summary.overwritten.push(...result.overwritten);
@@ -309,7 +301,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     } else if (summary.added.length) {
       addToast(t('groupOverlay.toast.uploadAdded', { n: summary.added.length }), 'success');
     }
-  }, [group.id, fetchIllustrations, onGroupUpdated, t, conflictPolicy, addToast]);
+  }, [addToast, clearSelection, conflictPolicy, fetchIllustrations, group.id, onGroupUpdated, t]);
 
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -388,41 +380,45 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
-    try {
-      await deleteIllustration(deleteTarget.id);
+    const result = await handleDeleteIllustrations([deleteTarget.id], true);
+    if (result.deleted.length > 0) {
       setDeleteTarget(null);
-      setSelectedIds((prev) => { const next = new Set(prev); next.delete(deleteTarget.id); return next; });
-      addToast(t('groupOverlay.toast.deleted'), 'success');
-      await fetchIllustrations();
-      if (onGroupUpdated) onGroupUpdated();
-    } catch (err) {
-      addToast(err.message || t('groupOverlay.toast.deleteFailed'), 'error');
     }
   };
 
-  const handleDeleteIllustrations = useCallback(async (ids) => {
-    const result = await deleteIllustrationBatch(ids);
+  const handleDeleteIllustrations = useCallback(async (ids, single = false) => {
+    const result = await deleteIllustrations(ids);
     const deletedSet = new Set(result.deleted);
 
     if (deletedSet.size > 0) {
       setIllustrations((previous) => previous.filter((item) => !deletedSet.has(item.id)));
       setTotalCount((previous) => Math.max(0, previous - deletedSet.size));
-      setSelectedIds((previous) => new Set([...previous].filter((id) => !deletedSet.has(id))));
-      setManualGroupIds(result.deleted, null);
+      removeFromSelection(result.deleted);
+      removeManualGroupIds(result.deleted);
+      await removeManualAssignmentsForIllustrations(result.deleted).catch(() => {});
       if (onGroupUpdated) onGroupUpdated();
     }
-    setLastClickedId(null);
 
     if (result.failed.length === 0) {
-      addToast(t('groupOverlay.toast.batchDeleted', { n: result.deleted.length }), 'success');
+      addToast(
+        single
+          ? t('groupOverlay.toast.deleted')
+          : t('groupOverlay.toast.batchDeleted', { n: result.deleted.length }),
+        'success',
+      );
     } else {
-      addToast(t('groupOverlay.toast.batchPartial', {
-        succeeded: result.deleted.length,
-        failed: result.failed.length,
-      }), 'error');
+      addToast(
+        single
+          ? t('groupOverlay.toast.deleteFailed')
+          : t('groupOverlay.toast.batchPartial', {
+            succeeded: result.deleted.length,
+            failed: result.failed.length,
+          }),
+        'error',
+      );
     }
     return result;
-  }, [addToast, onGroupUpdated, setManualGroupIds, t]);
+  }, [addToast, onGroupUpdated, removeFromSelection, removeManualGroupIds, t]);
 
   const handleBatchDelete = async () => {
     setBatchDeleting(true);
@@ -511,47 +507,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     }
   }, [addToast, t]);
 
-  const handleCardClick = (ill) => {
-    setSelectedIds(new Set());
-    setLastClickedId(ill.id);
-    const idx = displayedIllustrations.findIndex((i) => i.id === ill.id);
-    if (idx !== -1) setLightboxIndex(idx);
-  };
-
-  const handleCtrlClick = (ill) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(ill.id)) next.delete(ill.id);
-      else next.add(ill.id);
-      return next;
-    });
-    setLastClickedId(ill.id);
-  };
-
-  const handleShiftClick = (ill) => {
-    if (lastClickedId === null) {
-      handleCtrlClick(ill);
-      return;
-    }
-    const lastIdx = displayedIllustrations.findIndex((i) => i.id === lastClickedId);
-    const currIdx = displayedIllustrations.findIndex((i) => i.id === ill.id);
-    if (lastIdx === -1 || currIdx === -1) return;
-    const [start, end] = lastIdx < currIdx ? [lastIdx, currIdx] : [currIdx, lastIdx];
-    const rangeIds = displayedIllustrations.slice(start, end + 1).map((i) => i.id);
-    setSelectedIds((prev) => new Set([...prev, ...rangeIds]));
-    setLastClickedId(ill.id);
-  };
-
   const handleLightboxDelete = async (ill) => {
-    try {
-      await deleteIllustration(ill.id);
-      setSelectedIds((prev) => { const next = new Set(prev); next.delete(ill.id); return next; });
-      addToast(t('groupOverlay.toast.deleted'), 'success');
-      await fetchIllustrations();
-      if (onGroupUpdated) onGroupUpdated();
-    } catch (err) {
-      addToast(err.message || t('groupOverlay.toast.deleteFailed'), 'error');
-    }
+    await handleDeleteIllustrations([ill.id], true);
   };
 
   const handleLightboxSetCover = async (ill) => {
@@ -565,7 +522,6 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   };
 
   const cardProps = useCallback((ill) => ({
-    key: ill.id,
     illustration: ill,
     onClick: handleCardClick,
     onCtrlClick: handleCtrlClick,
@@ -576,7 +532,14 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     showHoverActions: true,
     quality,
     preserveAspectRatio,
-  }), [selectedIds, lastClickedId, displayedIllustrations, quality, preserveAspectRatio]);
+  }), [
+    handleCardClick,
+    handleCtrlClick,
+    handleShiftClick,
+    preserveAspectRatio,
+    quality,
+    selectedIds,
+  ]);
 
   // ── Render ─────────────────────────────────────────────
 
@@ -637,7 +600,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
             {/* Sort controls */}
             {illustrations.length > 1 && (
-              <DropdownSelect
+              <SettingsSelect
+                variant="toolbar"
                 icon={ArrowUpDown}
                 label={t('groupOverlay.sort.label')}
                 options={SORT_OPTIONS}
@@ -661,12 +625,13 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
 
             {/* Group By controls */}
             {illustrations.length > 1 && (
-              <DropdownSelect
+              <SettingsSelect
+                variant="toolbar"
                 icon={Layers}
                 label={t('groupOverlay.group.label')}
                 options={translatedGroupOptions}
                 value={groupBy}
-                onChange={(v) => { setGroupBy(v); try { localStorage.setItem('gallery-group-by', v); } catch {} setCollapsedGroups(new Set()); }}
+                onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
                 rightElement={
                   groupBy !== 'none' ? (
                     <button
@@ -682,7 +647,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             )}
 
             {/* Quality selector */}
-            <DropdownSelect
+            <SettingsSelect
+              variant="toolbar"
               icon={Monitor}
               label={t('groupOverlay.quality.label')}
               options={translatedQualityOptions}
@@ -898,7 +864,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                   cardSize={cardSize}
                 >
                   {group.items.map((ill) => (
-                    <IllustrationCard {...cardProps(ill)} />
+                    <IllustrationCard key={ill.id} {...cardProps(ill)} />
                   ))}
                 </ColorGroup>
               ))}
@@ -908,7 +874,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             <div className={`grid items-start ${cardSizeGrid} gap-4`}>
               <AnimatePresence mode="popLayout">
                 {paginatedIllustrations.map((ill) => (
-                  <IllustrationCard {...cardProps(ill)} />
+                  <IllustrationCard key={ill.id} {...cardProps(ill)} />
                 ))}
               </AnimatePresence>
             </div>
@@ -963,7 +929,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 {batchDeleting ? t('groupOverlay.batch.deleting') : t('groupOverlay.batch.delete')}
               </button>
               <button
-                onClick={() => { setSelectedIds(new Set()); setLastClickedId(null); }}
+                onClick={clearSelection}
                 className="px-3 py-2 rounded-lg text-sm text-content-muted hover:text-content-secondary transition-colors flex items-center gap-1.5"
               >
                 <X className="w-4 h-4" />

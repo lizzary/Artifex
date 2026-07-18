@@ -2,7 +2,12 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { NAMING_TAGS } from '../hooks/useDownloadConfig';
 
-const FORBIDDEN_INPUT_RE = /[:"/\\|?*\x00]/g;
+const FORBIDDEN_INPUT_RE = /[:"/\\|?*]/g;
+const NULL_CHARACTER = String.fromCharCode(0);
+
+function sanitizeTextInput(value) {
+  return value.replace(FORBIDDEN_INPUT_RE, '').split(NULL_CHARACTER).join('');
+}
 
 function parseSegments(format) {
   const segments = [];
@@ -58,7 +63,7 @@ export default function NamingFormatInput({ value, onChange, onBlur, placeholder
   const handleTextKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const clean = textInput.replace(FORBIDDEN_INPUT_RE, '');
+      const clean = sanitizeTextInput(textInput);
       if (clean) {
         onChange(value + clean);
         setTextInput('');
@@ -75,7 +80,7 @@ export default function NamingFormatInput({ value, onChange, onBlur, placeholder
   }, [textInput, value, segments, onChange]);
 
   const handleTextChange = useCallback((e) => {
-    setTextInput(e.target.value.replace(FORBIDDEN_INPUT_RE, ''));
+    setTextInput(sanitizeTextInput(e.target.value));
   }, []);
 
   const handleContainerClick = useCallback(() => {
@@ -90,7 +95,7 @@ export default function NamingFormatInput({ value, onChange, onBlur, placeholder
 
   const handleBlur = useCallback(() => {
     // Commit any pending text before blurring
-    const clean = textInput.replace(FORBIDDEN_INPUT_RE, '');
+    const clean = sanitizeTextInput(textInput);
     blurTimeoutRef.current = setTimeout(() => {
       setFocused(false);
       setShowTags(false);

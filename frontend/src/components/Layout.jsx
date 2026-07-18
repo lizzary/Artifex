@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sun, Moon, Search, Settings } from 'lucide-react';
+import { Sun, Moon, Search } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLocale } from '../contexts/LocaleContext';
 import TagPromptSuggest from './TagPromptSuggest';

@@ -1,25 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'gallery-download-naming-format';
 
 export const NAMING_TAGS = [
-  { key: 'date', label: 'date', always: true },
-  { key: 'Resolution', label: 'Resolution', always: true },
-  { key: 'File Size', label: 'File Size', always: true },
-  { key: 'Date Created', label: 'Date Created', always: true },
-  { key: 'group', label: 'group', always: true },
-  { key: 'Model', label: 'model', always: false },
-  { key: 'Seed', label: 'seed', always: false },
-  { key: 'Sampler', label: 'sampler', always: false },
-  { key: 'Steps', label: 'step', always: false },
-  { key: 'CFG Scale', label: 'cfg scale', always: false },
-  { key: 'Lora', label: 'lora', always: false },
+  { key: 'date', label: 'date' },
+  { key: 'Resolution', label: 'Resolution' },
+  { key: 'File Size', label: 'File Size' },
+  { key: 'Date Created', label: 'Date Created' },
+  { key: 'group', label: 'group' },
+  { key: 'Model', label: 'model' },
+  { key: 'Seed', label: 'seed' },
+  { key: 'Sampler', label: 'sampler' },
+  { key: 'Steps', label: 'step' },
+  { key: 'CFG Scale', label: 'cfg scale' },
+  { key: 'Lora', label: 'lora' },
 ];
 
-const FORBIDDEN_RE = /[<>:"/\\|?*\x00]/g;
+const FORBIDDEN_RE = /[<>:"/\\|?*]/g;
+const NULL_CHARACTER = String.fromCharCode(0);
 
-export function sanitizeFilename(name) {
-  return name.replace(FORBIDDEN_RE, '').trim();
+function sanitizeFilename(name) {
+  return name.replace(FORBIDDEN_RE, '').split(NULL_CHARACTER).join('').trim();
 }
 
 function pad(n) {
@@ -97,7 +98,5 @@ export default function useDownloadConfig() {
     } catch { /* ignore */ }
   }, [format]);
 
-  const resetFormat = useCallback(() => setFormat(''), []);
-
-  return { format, setFormat, resetFormat };
+  return { format, setFormat };
 }

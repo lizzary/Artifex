@@ -28,7 +28,7 @@ export default function ColorGroup({ group, collapsed, onToggle, children, cardS
           className="w-3 h-3 rounded-full shrink-0"
           style={{ backgroundColor: group.borderColor }}
         />
-        <span className="text-sm font-medium text-content-secondary">{group.name === 'Other' ? t('colorGroup.other') : group.name}</span>
+        <span className="text-sm font-medium text-content-secondary">{group.id === 'other' ? t('colorGroup.other') : group.name}</span>
         <span className="text-xs text-content-muted">{t('colorGroup.count', { count: group.items.length })}</span>
         {group.id !== 'other' && (group.manualCount > 0 || group.computedCount > 0) && (
           <span className="ml-auto flex items-center gap-1.5 text-[10px] text-content-muted">

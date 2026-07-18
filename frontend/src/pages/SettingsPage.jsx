@@ -7,8 +7,15 @@ import ConfirmModal from '../components/ConfirmModal';
 import NamingFormatInput from '../components/NamingFormatInput';
 import SettingsSelect from '../components/SettingsSelect';
 import useDownloadConfig from '../hooks/useDownloadConfig';
-import { listModels, uploadModel, deleteModel, deleteDefaultModel } from '../api';
-import { backendUrl } from '../api/url';
+import {
+  deleteDefaultModel,
+  deleteModel,
+  downloadModel,
+  getSettings,
+  listModels,
+  updateSettings,
+  uploadModel,
+} from '../api';
 
 const LANG_OPTIONS = [
   { value: 'en', labelKey: 'settings.general.language.en' },
@@ -50,8 +57,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetch(backendUrl('/api/settings'))
-      .then(r => r.json())
+    getSettings()
       .then(setSettings)
       .catch(() => {});
     fetchModels();
@@ -82,13 +88,7 @@ export default function SettingsPage() {
     setSettings(prev => prev ? { ...prev, [key]: value } : prev);
     setSaving(true);
     try {
-      const res = await fetch(backendUrl('/api/settings'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [key]: value }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      const updated = await res.json();
+      const updated = await updateSettings({ [key]: value });
       setSettings(updated);
       addToast(t('settings.toast.saved'), 'success');
     } catch {
@@ -104,13 +104,7 @@ export default function SettingsPage() {
     if (modelName === activeModel) return;
     setActiveModel(modelName);
     try {
-      const res = await fetch(backendUrl('/api/settings'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active_model: modelName }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      const updated = await res.json();
+      const updated = await updateSettings({ active_model: modelName });
       setSettings(updated);
       addToast(t('settings.toast.saved'), 'success');
     } catch {
@@ -122,8 +116,7 @@ export default function SettingsPage() {
   const handleModelDownload = async () => {
     setDownloading(true);
     try {
-      const res = await fetch(backendUrl('/api/model/download'), { method: 'POST' });
-      if (!res.ok) throw new Error('Download failed');
+      await downloadModel();
       addToast(t('settings.toast.saved'), 'success');
       fetchModels(); // refresh cached status
     } catch {

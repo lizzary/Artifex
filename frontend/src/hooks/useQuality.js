@@ -17,9 +17,3 @@ export default function useQuality() {
 
   return [quality, setQuality];
 }
-
-export const QUALITY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'original', label: 'Original' },
-];

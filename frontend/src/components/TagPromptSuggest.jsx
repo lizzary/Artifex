@@ -1,9 +1,30 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { listTags, listPrompts } from '../api';
 import { useLocale } from '../contexts/LocaleContext';
+import {
+  getTagPromptSuggestionRevision,
+  loadTagPromptSuggestions,
+  subscribeToTagPromptSuggestions,
+} from '../utils/tagPromptCache';
 
-// Module-level cache shared across all instances
-const _cache = { tag: null, prompt: null, mixed: null };
+function mergeTagsAndPrompts(tags, prompts) {
+  const items = new Map();
+  tags.forEach((tag) => items.set(tag.toLowerCase(), { text: tag, types: ['tag'] }));
+  prompts.forEach((prompt) => {
+    const key = prompt.toLowerCase();
+    const existing = items.get(key);
+    if (existing) existing.types.push('prompt');
+    else items.set(key, { text: prompt, types: ['prompt'] });
+  });
+  return [...items.values()];
+}
 
 export default function TagPromptSuggest({
   type,
@@ -25,56 +46,29 @@ export default function TagPromptSuggest({
   const skipFocusRef = useRef(false);
   const listboxId = useId();
   const { t } = useLocale();
+  const cacheRevision = useSyncExternalStore(
+    subscribeToTagPromptSuggestions,
+    getTagPromptSuggestionRevision,
+    getTagPromptSuggestionRevision,
+  );
 
-  // Fetch full list once, using cache
   useEffect(() => {
-    if (type !== 'mixed') {
-      if (_cache[type]) {
-        setAllItems(_cache[type]);
-        return;
-      }
-      const fetcher = type === 'tag' ? listTags : listPrompts;
-      let cancelled = false;
-      fetcher()
-        .then((data) => {
-          if (!cancelled) {
-            _cache[type] = data;
-            setAllItems(data);
-          }
-        })
-        .catch(() => {});
-      return () => { cancelled = true; };
-    }
-
-    // Mixed type — fetch both
-    if (_cache.mixed) {
-      setAllItems(_cache.mixed);
-      return;
-    }
     let cancelled = false;
-    Promise.all([listTags(), listPrompts()])
-      .then(([tags, prompts]) => {
-        if (cancelled) return;
-        const map = new Map();
-        for (const tag of tags) {
-          const key = tag.toLowerCase();
-          map.set(key, { text: tag, types: ['tag'] });
-        }
-        for (const prompt of prompts) {
-          const key = prompt.toLowerCase();
-          if (map.has(key)) {
-            map.get(key).types.push('prompt');
-          } else {
-            map.set(key, { text: prompt, types: ['prompt'] });
-          }
-        }
-        const merged = [...map.values()];
-        _cache.mixed = merged;
-        setAllItems(merged);
+    const loader = type === 'mixed'
+      ? () => Promise.all([listTags(), listPrompts()]).then(([tags, prompts]) => (
+        mergeTagsAndPrompts(tags, prompts)
+      ))
+      : (type === 'tag' ? listTags : listPrompts);
+
+    loadTagPromptSuggestions(type, loader)
+      .then((items) => {
+        if (!cancelled) setAllItems(items);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setAllItems([]);
+      });
     return () => { cancelled = true; };
-  }, [type]);
+  }, [cacheRevision, type]);
 
   // Filter suggestions based on input
   useEffect(() => {

@@ -10,6 +10,7 @@ import SearchOverlay from '../components/SearchOverlay';
 import { listGroups, createGroup, updateGroup, deleteGroup } from '../api';
 import useQuality from '../hooks/useQuality';
 import useGroupOrder from '../hooks/useGroupOrder';
+import { removeGroupConfigScope } from '../hooks/useGroupConfig';
 import { useLocale } from '../contexts/LocaleContext';
 
 export default function HomePage() {
@@ -19,7 +20,7 @@ export default function HomePage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [searchQuery, setSearchQuery] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { group }
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null); // group to rename
   const [quality] = useQuality();
   const { t } = useLocale();
@@ -72,6 +73,7 @@ export default function HomePage() {
     if (!deleteConfirm) return;
     try {
       await deleteGroup(deleteConfirm.id);
+      await removeGroupConfigScope(deleteConfirm.id).catch(() => {});
       setDeleteConfirm(null);
       await fetchGroups();
       setError('');

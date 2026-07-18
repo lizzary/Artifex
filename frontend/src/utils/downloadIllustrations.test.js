@@ -41,4 +41,18 @@ describe('downloadIllustrations', () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].id).toBe(7);
   });
+
+  test('prefixes relative file URLs with the configured API base URL', async () => {
+    const previousBaseUrl = process.env.REACT_APP_API_BASE_URL;
+    process.env.REACT_APP_API_BASE_URL = 'https://artifex.example/api-root/';
+    jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await downloadIllustrations([illustration], '');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://artifex.example/api-root/api/illustrations/7/file',
+    );
+    if (previousBaseUrl === undefined) delete process.env.REACT_APP_API_BASE_URL;
+    else process.env.REACT_APP_API_BASE_URL = previousBaseUrl;
+  });
 });

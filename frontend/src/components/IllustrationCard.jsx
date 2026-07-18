@@ -58,8 +58,8 @@ export default function IllustrationCard({
 
       {/* Thumbnail */}
       <div
-        className={`${preserveAspectRatio ? 'illustration-original-ratio' : 'aspect-square'} flex cursor-pointer items-center justify-center overflow-hidden bg-surface-tertiary`}
-        style={preserveAspectRatio ? { '--illustration-aspect-ratio': aspectRatio } : undefined}
+        className={`${preserveAspectRatio ? '' : 'aspect-square'} flex cursor-pointer items-center justify-center overflow-hidden bg-surface-tertiary`}
+        style={preserveAspectRatio ? { aspectRatio } : undefined}
         onClick={handleClick}
       >
         {imgError ? (

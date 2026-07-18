@@ -5,37 +5,22 @@ function clampParenCount(value) {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(4, Math.trunc(parsed))) : 0;
 }
 
-export function normalizeTerm(term, fallbackScope = 'all', index = 0) {
-  if (typeof term === 'string') {
-    return {
-      value: term,
-      scope: VALID_SCOPES.has(fallbackScope) ? fallbackScope : 'all',
-      operator: index === 0 ? 'and' : 'and',
-      negated: false,
-      open: 0,
-      close: 0,
-    };
-  }
-
-  const value = term?.value ?? term?.text ?? '';
+function normalizeTerm(term) {
   return {
-    value: String(value),
-    scope: VALID_SCOPES.has(term?.scope) ? term.scope : (VALID_SCOPES.has(fallbackScope) ? fallbackScope : 'all'),
-    operator: index === 0 ? 'and' : (term?.operator === 'or' ? 'or' : 'and'),
+    value: String(term?.value ?? ''),
+    scope: VALID_SCOPES.has(term?.scope) ? term.scope : 'all',
+    operator: term?.operator === 'or' ? 'or' : 'and',
     negated: Boolean(term?.negated),
     open: clampParenCount(term?.open),
     close: clampParenCount(term?.close),
   };
 }
 
-export function normalizePairTerms(pair, fallbackScope = 'all') {
-  const source = Array.isArray(pair?.terms)
-    ? pair.terms
-    : (Array.isArray(pair?.keywords) ? pair.keywords : []);
-  return source.map((term, index) => normalizeTerm(term, fallbackScope, index));
+export function normalizePairTerms(pair) {
+  return Array.isArray(pair?.terms) ? pair.terms.map(normalizeTerm) : [];
 }
 
-export function expressionLabel(pair) {
+function expressionLabel(pair) {
   const terms = normalizePairTerms(pair);
   return terms.map((term, index) => {
     const prefix = index === 0 ? '' : ` ${term.operator.toUpperCase()} `;
@@ -143,19 +128,6 @@ export function matchesMixedExpression(ill, pair) {
   return stack.length === 1 ? stack[0] : false;
 }
 
-// Kept as compatibility helpers for legacy callers and saved configurations.
-export function matchesTagPair(ill, keywords) {
-  return matchesMixedExpression(ill, {
-    terms: (keywords || []).map((value, index) => normalizeTerm(value, 'tag', index)),
-  });
-}
-
-export function matchesPromptPair(ill, keywords) {
-  return matchesMixedExpression(ill, {
-    terms: (keywords || []).map((value, index) => normalizeTerm(value, 'prompt', index)),
-  });
-}
-
 function priorityGroupsFor(pairs, matchOrder = []) {
   const groupById = new Map(pairs.map((group) => [group.id, group]));
   const orderedIds = [
@@ -238,7 +210,6 @@ export function groupIllustrations(
   }
   return result;
 }
-
 // Slice the flattened visual group order, then rebuild only the group
 // containers that intersect the requested page. This keeps page boundaries
 // aligned with display order (group A, then group B, then Other) without
@@ -273,8 +244,3 @@ export function paginateIllustrationGroups(groups, page, pageSize) {
 
   return result;
 }
-
-export const GROUP_BY_OPTIONS = [
-  { value: 'none', label: 'No Grouping' },
-  { value: 'mixed', label: 'Color Groups' },
-];

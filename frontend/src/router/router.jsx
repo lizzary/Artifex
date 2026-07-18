@@ -1,24 +1,24 @@
-import { createBrowserRouter } from "react-router-dom";
-import HomePage from "../pages/HomePage";
-import TagsPage from "../pages/TagsPage";
-import PromptsPage from "../pages/PromptsPage";
-import SettingsPage from "../pages/SettingsPage";
+import { createBrowserRouter } from 'react-router-dom';
+import { listPrompts, listTags } from '../api';
+import HomePage from '../pages/HomePage';
+import ReferenceListPage from '../pages/ReferenceListPage';
+import SettingsPage from '../pages/SettingsPage';
 
 const router = createBrowserRouter([
   {
-    path: "/",
+    path: '/',
     element: <HomePage />,
   },
   {
-    path: "/tags",
-    element: <TagsPage />,
+    path: '/tags',
+    element: <ReferenceListPage loadItems={listTags} translationPrefix="tags" />,
   },
   {
-    path: "/prompts",
-    element: <PromptsPage />,
+    path: '/prompts',
+    element: <ReferenceListPage loadItems={listPrompts} translationPrefix="prompts" />,
   },
   {
-    path: "/settings",
+    path: '/settings',
     element: <SettingsPage />,
   },
 ]);

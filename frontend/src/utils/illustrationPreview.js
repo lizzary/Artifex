@@ -1,5 +1,9 @@
 const FALLBACK_ASPECT_RATIO = 4 / 3;
 
+export function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function getAspectFitPreviewHeight(
   illustration,
   boxWidth,
@@ -11,5 +15,5 @@ export function getAspectFitPreviewHeight(
   const aspectRatio = sourceWidth > 0 && sourceHeight > 0
     ? sourceWidth / sourceHeight
     : FALLBACK_ASPECT_RATIO;
-  return Math.round(Math.max(minHeight, Math.min(maxHeight, boxWidth / aspectRatio)));
+  return Math.round(clamp(boxWidth / aspectRatio, minHeight, maxHeight));
 }

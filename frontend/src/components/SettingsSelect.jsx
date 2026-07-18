@@ -12,6 +12,10 @@ export default function SettingsSelect({
   compact = false,
   placement = 'bottom',
   ariaLabel,
+  variant = 'settings',
+  icon: Icon,
+  label,
+  rightElement,
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
@@ -35,9 +39,11 @@ export default function SettingsSelect({
   }, [open]);
 
   const active = options.find((o) => o.value === value);
+  const toolbar = variant === 'toolbar';
+  const highlighted = value && value !== 'none' && value !== '';
 
   return (
-    <div ref={containerRef} className="relative flex-shrink-0">
+    <div ref={containerRef} className={`relative ${toolbar ? 'flex items-center' : 'flex-shrink-0'}`}>
       <button
         type="button"
         aria-label={ariaLabel}
@@ -45,22 +51,36 @@ export default function SettingsSelect({
         aria-haspopup="listbox"
         disabled={disabled}
         onClick={() => !disabled && setOpen((v) => !v)}
-        style={{ minWidth }}
-        className={`group flex items-center rounded-lg border font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/40 ${
-          compact ? 'gap-1.5 px-2.5 py-1.5 text-[11px]' : 'gap-2 px-3.5 py-2 text-sm'
-        } ${
-          open
+        style={toolbar ? undefined : { minWidth }}
+        className={`group flex items-center rounded-lg border font-medium transition-all focus:outline-none focus:ring-2 focus:ring-accent/40 ${toolbar
+          ? 'gap-1.5 px-3 py-2 text-sm'
+          : (compact ? 'gap-1.5 px-2.5 py-1.5 text-[11px]' : 'gap-2 px-3.5 py-2 text-sm')
+        } ${toolbar
+          ? (highlighted
+            ? 'bg-accent/10 border-accent/30 text-accent'
+            : 'bg-surface-tertiary border-edge-secondary text-content-secondary hover:border-edge-primary hover:text-content-primary')
+          : (open
             ? 'bg-surface-tertiary border-accent/50 text-content-primary shadow-sm'
-            : 'bg-surface-tertiary border-edge-secondary text-content-primary hover:border-accent/40 hover:bg-edge-secondary/40'
+            : 'bg-surface-tertiary border-edge-secondary text-content-primary hover:border-accent/40 hover:bg-edge-secondary/40')
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <span className="flex-1 text-left truncate">{active ? active.label : ''}</span>
+        {toolbar ? (
+          <>
+            {Icon && <Icon className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{label}</span>
+            {highlighted && <span className="hidden opacity-80 sm:inline">: {active?.label}</span>}
+          </>
+        ) : (
+          <span className="flex-1 truncate text-left">{active ? active.label : ''}</span>
+        )}
         <ChevronDown
           className={`${compact ? 'h-3 w-3' : 'h-4 w-4'} text-content-tertiary group-hover:text-content-secondary transition-transform duration-200 ${
             open ? 'rotate-180 text-accent' : ''
           }`}
         />
       </button>
+
+      {rightElement && <div className="ml-1">{rightElement}</div>}
 
       <AnimatePresence>
         {open && (
@@ -70,8 +90,8 @@ export default function SettingsSelect({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: placement === 'top' ? 6 : -6, scale: 0.97 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{ minWidth: menuMinWidth }}
-            className={`absolute right-0 bg-surface-secondary border border-edge-primary rounded-xl shadow-2xl z-50 overflow-hidden py-1 ${
+            style={{ minWidth: toolbar ? 180 : menuMinWidth }}
+            className={`absolute ${toolbar ? 'left-0' : 'right-0'} bg-surface-secondary border border-edge-primary rounded-xl shadow-2xl z-50 overflow-hidden py-1 ${
               placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
             }`}
           >

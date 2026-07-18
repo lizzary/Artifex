@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Trash2, Info, Play, Pause, ChevronDown, Timer, Download, Loader2 } from 'lucide-react';
-import { getIllustrationMetadata, updateIllustration } from '../api';
+import { updateIllustration } from '../api';
 import { backendUrl } from '../api/url';
 import TagPromptSuggest from './TagPromptSuggest';
 import { useLocale } from '../contexts/LocaleContext';
 import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
+import useIllustrationMetadata from '../hooks/useIllustrationMetadata';
+import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { useToast } from './Toast';
 
 const SLIDESHOW_INTERVAL_KEY = 'gallery_slideshow_interval';
@@ -17,6 +19,15 @@ const SLIDESHOW_PRESETS = [2, 3, 5, 10];
 function clampInterval(n) {
   if (!Number.isFinite(n)) return SLIDESHOW_INTERVAL_DEFAULT;
   return Math.max(SLIDESHOW_INTERVAL_MIN, Math.min(SLIDESHOW_INTERVAL_MAX, Math.round(n)));
+}
+
+function readSlideshowInterval() {
+  try {
+    const stored = Number(localStorage.getItem(SLIDESHOW_INTERVAL_KEY));
+    return stored ? clampInterval(stored) : SLIDESHOW_INTERVAL_DEFAULT;
+  } catch {
+    return SLIDESHOW_INTERVAL_DEFAULT;
+  }
 }
 
 export default function Lightbox({ illustrations, initialIndex, onClose, onDelete, onSetCover, onUpdate }) {
@@ -43,9 +54,6 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
   ], [t]);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showDetails, setShowDetails] = useState(false);
-  const [metadata, setMetadata] = useState(null);
-  const [loadingMeta, setLoadingMeta] = useState(false);
-  const [metaError, setMetaError] = useState('');
   const [imageError, setImageError] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
@@ -56,12 +64,16 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
 
   // ── Slideshow ───────────────────────────────────────────
   const [slideshowOn, setSlideshowOn] = useState(false);
-  const [intervalSec, setIntervalSec] = useState(() => {
-    const stored = Number(localStorage.getItem(SLIDESHOW_INTERVAL_KEY));
-    return stored ? clampInterval(stored) : SLIDESHOW_INTERVAL_DEFAULT;
-  });
+  const [intervalSec, setIntervalSec] = useState(readSlideshowInterval);
   const [slideshowSettingsOpen, setSlideshowSettingsOpen] = useState(false);
   const slideshowRef = useRef(null);
+  const currentIllustration = illustrations[currentIndex];
+  const total = illustrations.length;
+  const {
+    metadata,
+    loading: loadingMeta,
+    error: metaError,
+  } = useIllustrationMetadata(currentIllustration?.id, showDetails);
 
   // Sync from initialIndex when reopened with different image
   useEffect(() => {
@@ -77,34 +89,16 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
     if (currentIndex >= illustrations.length) {
       setCurrentIndex(Math.max(0, illustrations.length - 1));
     }
-  }, [illustrations.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentIndex, illustrations.length, onClose]);
 
   // Reset per-image state on navigation
   useEffect(() => {
-    setMetadata(null);
-    setMetaError('');
     setImageError(false);
     setTagsExpanded(false);
     setEditingTags(false);
     setDraftTags([]);
     setNewTagInput('');
   }, [currentIndex]);
-
-  // Fetch metadata when details panel opens
-  useEffect(() => {
-    if (showDetails && !metadata && !loadingMeta) {
-      const ill = illustrations[currentIndex];
-      if (!ill) return;
-      setLoadingMeta(true);
-      getIllustrationMetadata(ill.id)
-        .then(setMetadata)
-        .catch((err) => setMetaError(err.message))
-        .finally(() => setLoadingMeta(false));
-    }
-  }, [showDetails, metadata, loadingMeta, currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const currentIllustration = illustrations[currentIndex];
-  const total = illustrations.length;
 
   const navigate = useCallback((delta) => {
     setCurrentIndex((prev) => {
@@ -144,7 +138,7 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
 
   // Persist interval
   useEffect(() => {
-    localStorage.setItem(SLIDESHOW_INTERVAL_KEY, String(intervalSec));
+    try { localStorage.setItem(SLIDESHOW_INTERVAL_KEY, String(intervalSec)); } catch {}
   }, [intervalSec]);
 
   // Auto-advance timer
@@ -178,19 +172,9 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
     if (!currentIllustration || downloading) return;
     setDownloading(true);
     try {
-      const response = await fetch(backendUrl(currentIllustration.file_url));
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const result = await downloadIllustrations([currentIllustration], format);
+      if (result.failed.length > 0) throw result.failed[0].error;
       const filename = resolveFilename(format, currentIllustration);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
       addToast(t('lightbox.toast.downloadStarted', { filename }), 'success');
     } catch {
       addToast(t('lightbox.toast.downloadFailed'), 'error');

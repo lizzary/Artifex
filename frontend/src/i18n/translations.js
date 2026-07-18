@@ -43,10 +43,8 @@ const translations = {
 
     // RenameGroup
     'renameGroup.heading': 'Rename Group',
-    'renameGroup.placeholder': 'Enter new name',
     'renameGroup.renaming': 'Renaming...',
     'renameGroup.rename': 'Rename',
-    'renameGroup.error': 'Rename failed',
 
     // ConfirmModal
     'confirmModal.confirm': 'Confirm',
@@ -68,8 +66,6 @@ const translations = {
     'groupOverlay.cardSize.label': 'Size',
     'groupOverlay.originalRatio.label': 'Original ratio',
     'groupOverlay.originalRatio.hint': 'Show every illustration in its full original aspect ratio',
-    'groupOverlay.group.configTag': 'Configure Tag Groups',
-    'groupOverlay.group.configPrompt': 'Configure Prompt Groups',
     'groupOverlay.group.configMixed': 'Configure Color Groups',
     'groupOverlay.board.open': 'Explore board',
     'groupOverlay.board.openHint': 'Open the color-group board to explore and manually arrange illustrations',
@@ -121,8 +117,6 @@ const translations = {
     'groupOverlay.pagination.page': 'Page',
     'groupOverlay.pagination.of': 'of',
     'groupOverlay.pagination.total': '{total} total',
-    'groupOverlay.pagination.prev': 'Previous',
-    'groupOverlay.pagination.next': 'Next',
     'groupOverlay.pagination.pageSize': 'Per page',
     'groupOverlay.pagination.all': 'All',
     'groupOverlay.toast.downloading': 'Downloading {n} file(s)...',
@@ -182,14 +176,14 @@ const translations = {
     'lightbox.slideshow.presets': 'Quick presets',
     'lightbox.slideshow.spaceHint': 'Press Space to play or pause',
 
-    // TagsPage
+    // Tag reference list
     'tags.heading': 'All Tags',
     'tags.subtitle': '{count} unique tags',
     'tags.filterPlaceholder': 'Filter tags...',
     'tags.loading': 'Loading...',
     'tags.empty': 'No tags found.',
 
-    // PromptsPage
+    // Prompt reference list
     'prompts.heading': 'All Prompts',
     'prompts.subtitle': '{count} unique prompt terms',
     'prompts.filterPlaceholder': 'Filter prompts...',
@@ -204,8 +198,6 @@ const translations = {
     'searchOverlay.group.label': 'Group',
     'searchOverlay.quality.label': 'Quality',
     'searchOverlay.cardSize.label': 'Size',
-    'searchOverlay.group.configTag': 'Configure Tag Groups',
-    'searchOverlay.group.configPrompt': 'Configure Prompt Groups',
     'searchOverlay.group.configMixed': 'Configure Color Groups',
     'searchOverlay.searching': 'Searching...',
     'searchOverlay.empty': 'No matching illustrations found',
@@ -235,18 +227,16 @@ const translations = {
     'searchOverlay.toast.batchDeleted': '{n} illustration(s) deleted',
     'searchOverlay.toast.batchPartial': '{succeeded} deleted, {failed} failed',
     'searchOverlay.toast.downloading': 'Downloading {n} file(s)...',
+    'searchOverlay.toast.downloadPartial': '{succeeded} downloaded, {failed} failed',
 
     // ColorGroup
     'colorGroup.other': 'Other',
-    'colorGroup.unmatched': '— unmatched illustrations',
     'colorGroup.count': '({count})',
     'colorGroup.manualCount': '{count} manual',
     'colorGroup.automaticCount': '{count} automatic',
 
-    // DropdownSelect
+    // Select menus
     'dropdown.noGrouping': 'No Grouping',
-    'dropdown.groupByTag': 'Group by Tag',
-    'dropdown.groupByPrompt': 'Group by Prompt',
     'dropdown.smartGrouping': 'Color Groups',
     'dropdown.colorGrouping': 'Color Groups',
 
@@ -256,18 +246,9 @@ const translations = {
     'quality.original': 'Original',
 
     // GroupConfigModal
-    'groupConfig.title': 'Configure {label} Groups',
-    'groupConfig.titleTag': 'Configure Tag Groups',
-    'groupConfig.titlePrompt': 'Configure Prompt Groups',
     'groupConfig.eyebrow': 'Color system',
     'groupConfig.titleMixed': 'Configure color groups',
     'groupConfig.subtitle': 'A color group can collect illustrations automatically from rules or manually from the exploration board. Manual placement always takes priority.',
-    'groupConfig.help.general': 'Each group defines a set of keywords. An illustration is placed in the first group where all keywords match.',
-    'groupConfig.help.prompt': 'Matching searches both the Positive and Negative prompt text.',
-    'groupConfig.help.other': 'Unmatched illustrations go to "Other".',
-    'groupConfig.help.mixed': 'Each condition can search tags, prompts, or both.',
-    'groupConfig.help.logic': 'Parentheses and NOT run first, followed by AND, then OR.',
-    'groupConfig.help.priority': 'A matched illustration leaves the pipeline immediately.',
     'groupConfig.empty': 'No color groups yet. Add one to start shaping this board.',
     'groupConfig.groupHeading': 'Color group {n}',
     'groupConfig.name.label': 'Color group {n} name',
@@ -276,9 +257,6 @@ const translations = {
     'groupConfig.groupCount': '{count} color groups',
     'groupConfig.removeGroup': 'Remove color group',
     'groupConfig.removeKeyword': 'Remove condition',
-    'groupConfig.dragReorder': 'Drag to reorder',
-    'groupConfig.keywordPlaceholder.tag': 'e.g. girl',
-    'groupConfig.keywordPlaceholder.prompt': 'e.g. masterpiece',
     'groupConfig.keywordPlaceholder.mixed': 'Tag or prompt keyword…',
     'groupConfig.addKeyword': 'Add keyword',
     'groupConfig.addGroup': 'Add color group',
@@ -288,11 +266,8 @@ const translations = {
     'groupConfig.save': 'Save',
     'groupConfig.sets.switchHint': 'Color schemes keep their groups, rules, and manual placements separate.',
     'groupConfig.sets.ruleGuide': 'Automatic rules are optional. Manual placement always wins.',
-    'groupConfig.sets.exampleLabel': 'Example',
-    'groupConfig.sets.example': 'tag:1girl AND (prompt:portrait OR NOT tag:monochrome)',
     'groupConfig.sets.newSet': 'New Set',
     'groupConfig.sets.deleteSet': 'Delete Set',
-    'groupConfig.sets.deleteConfirm': 'Delete set "{name}" and all its groups? This cannot be undone.',
     'groupConfig.sets.deleteConfirmShort': 'Click again to delete',
     'groupConfig.sets.namePlaceholder': 'Set name...',
     'groupConfig.displayOrder.title': 'Color group order',
@@ -307,11 +282,8 @@ const translations = {
     'groupConfig.priority.manualStep': 'Manual grouping',
     'groupConfig.priority.manualStepDesc': 'Always applied before every automatic rule',
     'groupConfig.priority.fixed': 'FIXED FIRST',
-    'groupConfig.priority.manualWins': 'Manual placement comes first',
-    'groupConfig.priority.manualWinsDesc': 'Moving an illustration on the board overrides this rule queue. Dropping it outside all circles clears the override and returns it to automatic inference.',
     'groupConfig.concept.manual': 'Manual grouping',
     'groupConfig.concept.manualDesc': 'Drag one or many illustrations into a color circle on the board.',
-    'groupConfig.concept.priorityBadge': 'FIRST',
     'groupConfig.concept.automatic': 'Automatic inference',
     'groupConfig.concept.automaticDesc': 'Optional Boolean rules place illustrations when no manual choice exists.',
     'groupConfig.concept.result': 'Effective color group',
@@ -339,13 +311,7 @@ const translations = {
     'groupConfig.color.custom': 'Custom color',
     'groupConfig.color.reset': 'Restore default color',
     'groupConfig.logic.when': 'When',
-    'groupConfig.logic.not': 'NOT',
-    'groupConfig.logic.notHint': 'Invert this keyword condition',
     'groupConfig.logic.toggle': 'Switch between AND and OR',
-    'groupConfig.logic.addOpen': 'Add opening parenthesis',
-    'groupConfig.logic.removeOpen': 'Remove opening parenthesis',
-    'groupConfig.logic.addClose': 'Add closing parenthesis',
-    'groupConfig.logic.removeClose': 'Remove closing parenthesis',
     'groupConfig.logic.tools': 'Logic',
     'groupConfig.logic.selectHint': 'Select one or more conditions to edit.',
     'groupConfig.logic.contiguousHint': 'Select adjacent conditions to create a group.',
@@ -389,7 +355,6 @@ const translations = {
     'colorBoard.drop.clear': 'Release outside all circles to clear manual placement',
     'colorBoard.selected': '{count} selected',
     'colorBoard.clearSelection': 'Clear',
-    'colorBoard.help.dragSelection': 'Drag the selection into a circle or outside every circle',
     'colorBoard.help.pan': 'Right-drag to move the board',
     'colorBoard.help.select': 'Left-drag to select',
     'colorBoard.help.assign': 'Drag selected illustrations to assign',
@@ -430,7 +395,7 @@ const translations = {
     'tagPromptSuggest.tag': 'tag',
     'tagPromptSuggest.prompt': 'prompt',
     'tagPromptSuggest.tagAndPrompt': 'tag & prompt',
-    'tagPromptSuggest.filterScope.all': 'All',
+    'navigation.back': 'Back',
 
     // ModelDownloadModal
     'modelDownload.title': 'AI Tagging Model Required',
@@ -543,10 +508,8 @@ const translations = {
 
     // RenameGroup
     'renameGroup.heading': '重命名分组',
-    'renameGroup.placeholder': '输入新名称',
     'renameGroup.renaming': '重命名中...',
     'renameGroup.rename': '重命名',
-    'renameGroup.error': '重命名失败',
 
     // ConfirmModal
     'confirmModal.confirm': '确认',
@@ -568,8 +531,6 @@ const translations = {
     'groupOverlay.cardSize.label': '大小',
     'groupOverlay.originalRatio.label': '原比例',
     'groupOverlay.originalRatio.hint': '按原始宽高比完整显示所有插画',
-    'groupOverlay.group.configTag': '配置标签分组',
-    'groupOverlay.group.configPrompt': '配置提示词分组',
     'groupOverlay.group.configMixed': '配置颜色组',
     'groupOverlay.board.open': '探索白板',
     'groupOverlay.board.openHint': '打开颜色组探索白板，自由浏览并手动归组插画',
@@ -621,8 +582,6 @@ const translations = {
     'groupOverlay.pagination.page': '第',
     'groupOverlay.pagination.of': '/',
     'groupOverlay.pagination.total': '共 {total} 张',
-    'groupOverlay.pagination.prev': '上一页',
-    'groupOverlay.pagination.next': '下一页',
     'groupOverlay.pagination.pageSize': '每页',
     'groupOverlay.pagination.all': '全部',
     'groupOverlay.toast.downloading': '正在下载 {n} 个文件...',
@@ -682,14 +641,14 @@ const translations = {
     'lightbox.slideshow.presets': '快速预设',
     'lightbox.slideshow.spaceHint': '按下空格键可开始或暂停',
 
-    // TagsPage
+    // Tag reference list
     'tags.heading': '所有标签',
     'tags.subtitle': '{count} 个独立标签',
     'tags.filterPlaceholder': '筛选标签...',
     'tags.loading': '加载中...',
     'tags.empty': '未找到标签。',
 
-    // PromptsPage
+    // Prompt reference list
     'prompts.heading': '所有提示词',
     'prompts.subtitle': '{count} 个独立提示词',
     'prompts.filterPlaceholder': '筛选提示词...',
@@ -704,8 +663,6 @@ const translations = {
     'searchOverlay.group.label': '分组',
     'searchOverlay.quality.label': '画质',
     'searchOverlay.cardSize.label': '大小',
-    'searchOverlay.group.configTag': '配置标签分组',
-    'searchOverlay.group.configPrompt': '配置提示词分组',
     'searchOverlay.group.configMixed': '配置颜色组',
     'searchOverlay.searching': '搜索中...',
     'searchOverlay.empty': '未找到匹配的作品',
@@ -735,18 +692,16 @@ const translations = {
     'searchOverlay.toast.batchDeleted': '已删除 {n} 张作品',
     'searchOverlay.toast.batchPartial': '{succeeded} 张删除成功，{failed} 张失败',
     'searchOverlay.toast.downloading': '正在下载 {n} 个文件...',
+    'searchOverlay.toast.downloadPartial': '已下载 {succeeded} 张，{failed} 张下载失败',
 
     // ColorGroup
     'colorGroup.other': '其他',
-    'colorGroup.unmatched': '— 未匹配的作品',
     'colorGroup.count': '({count})',
     'colorGroup.manualCount': '{count} 手动',
     'colorGroup.automaticCount': '{count} 自动',
 
-    // DropdownSelect
+    // Select menus
     'dropdown.noGrouping': '不分组',
-    'dropdown.groupByTag': '按标签分组',
-    'dropdown.groupByPrompt': '按提示词分组',
     'dropdown.smartGrouping': '颜色组',
     'dropdown.colorGrouping': '颜色组',
 
@@ -756,18 +711,9 @@ const translations = {
     'quality.original': '原图',
 
     // GroupConfigModal
-    'groupConfig.title': '配置{label}分组',
-    'groupConfig.titleTag': '配置标签分组',
-    'groupConfig.titlePrompt': '配置提示词分组',
     'groupConfig.eyebrow': '颜色体系',
     'groupConfig.titleMixed': '配置颜色组',
     'groupConfig.subtitle': '颜色组既可以通过规则自动收纳插画，也可以在探索白板中手动归组；当两者冲突时，始终以手动归组为准。',
-    'groupConfig.help.general': '每个分组定义一组关键词。作品会被分配到第一个所有关键词都匹配的分组中。',
-    'groupConfig.help.prompt': '匹配会同时搜索正向和反向提示词文本。',
-    'groupConfig.help.other': '未匹配的作品归入"其他"分组。',
-    'groupConfig.help.mixed': '每个条件都可匹配标签、提示词或两者。',
-    'groupConfig.help.logic': '先计算括号和 NOT，再计算 AND，最后计算 OR。',
-    'groupConfig.help.priority': '作品命中后会立即退出匹配流程。',
     'groupConfig.empty': '还没有颜色组，先添加一个来组织这张白板。',
     'groupConfig.groupHeading': '颜色组 {n}',
     'groupConfig.name.label': '颜色组 {n} 名称',
@@ -776,9 +722,6 @@ const translations = {
     'groupConfig.groupCount': '{count} 个颜色组',
     'groupConfig.removeGroup': '删除颜色组',
     'groupConfig.removeKeyword': '删除条件',
-    'groupConfig.dragReorder': '拖动以重新排序',
-    'groupConfig.keywordPlaceholder.tag': '例如：女孩',
-    'groupConfig.keywordPlaceholder.prompt': '例如：masterpiece',
     'groupConfig.keywordPlaceholder.mixed': '输入标签或提示词关键词…',
     'groupConfig.addKeyword': '添加关键词',
     'groupConfig.addGroup': '添加颜色组',
@@ -788,11 +731,8 @@ const translations = {
     'groupConfig.save': '保存',
     'groupConfig.sets.switchHint': '不同颜色方案会分别保存颜色组、规则与手动归组结果。',
     'groupConfig.sets.ruleGuide': '自动规则可以留空；手动归组始终优先。',
-    'groupConfig.sets.exampleLabel': '示例',
-    'groupConfig.sets.example': 'tag:1girl AND (prompt:portrait OR NOT tag:monochrome)',
     'groupConfig.sets.newSet': '新建配置集',
     'groupConfig.sets.deleteSet': '删除配置集',
-    'groupConfig.sets.deleteConfirm': '确定要删除配置集 "{name}" 及其所有分组吗？此操作不可撤销。',
     'groupConfig.sets.deleteConfirmShort': '再次点击即可删除',
     'groupConfig.sets.namePlaceholder': '配置集名称...',
     'groupConfig.displayOrder.title': '颜色组顺序',
@@ -807,11 +747,8 @@ const translations = {
     'groupConfig.priority.manualStep': '手动分组',
     'groupConfig.priority.manualStepDesc': '始终先于所有自动规则生效',
     'groupConfig.priority.fixed': '固定首位',
-    'groupConfig.priority.manualWins': '手动归组优先生效',
-    'groupConfig.priority.manualWinsDesc': '在白板中移动插画会覆盖右侧规则队列；拖到所有圆圈外会清除手动归组，并重新交由自动规则判断。',
     'groupConfig.concept.manual': '手动分组',
     'groupConfig.concept.manualDesc': '在白板中将一张或多张插画拖进颜色圆圈。',
-    'groupConfig.concept.priorityBadge': '优先',
     'groupConfig.concept.automatic': '自动推导',
     'groupConfig.concept.automaticDesc': '没有手动选择时，可选的布尔规则会自动判断归属。',
     'groupConfig.concept.result': '最终颜色组',
@@ -839,13 +776,7 @@ const translations = {
     'groupConfig.color.custom': '自定义颜色',
     'groupConfig.color.reset': '恢复默认颜色',
     'groupConfig.logic.when': '当',
-    'groupConfig.logic.not': 'NOT',
-    'groupConfig.logic.notHint': '反转当前关键词条件',
     'groupConfig.logic.toggle': '在 AND 和 OR 之间切换',
-    'groupConfig.logic.addOpen': '添加左括号',
-    'groupConfig.logic.removeOpen': '移除左括号',
-    'groupConfig.logic.addClose': '添加右括号',
-    'groupConfig.logic.removeClose': '移除右括号',
     'groupConfig.logic.tools': '逻辑编辑',
     'groupConfig.logic.selectHint': '选择一个或多个条件进行编辑。',
     'groupConfig.logic.contiguousHint': '组成括号组时需选择相邻条件。',
@@ -889,7 +820,6 @@ const translations = {
     'colorBoard.drop.clear': '在所有圆圈外松开，清除手动归组',
     'colorBoard.selected': '已选 {count} 张',
     'colorBoard.clearSelection': '清除选择',
-    'colorBoard.help.dragSelection': '将所选插画拖进颜色圆圈，或拖到所有圆圈外',
     'colorBoard.help.pan': '按住右键拖动白板',
     'colorBoard.help.select': '按住左键框选',
     'colorBoard.help.assign': '拖动所选插画完成归组',
@@ -930,7 +860,7 @@ const translations = {
     'tagPromptSuggest.tag': '标签',
     'tagPromptSuggest.prompt': '提示词',
     'tagPromptSuggest.tagAndPrompt': '标签 & 提示词',
-    'tagPromptSuggest.filterScope.all': '全部',
+    'navigation.back': '返回',
 
     // ModelDownloadModal
     'modelDownload.title': '需要 AI 标签模型',

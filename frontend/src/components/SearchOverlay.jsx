@@ -3,17 +3,31 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, Settings, Download, Trash2, X, Monitor, Tag, Loader2 } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
-import useDownloadConfig, { resolveFilename } from '../hooks/useDownloadConfig';
-import { searchIllustrations, deleteIllustration, retagIllustrations, checkModelStatus } from '../api';
+import useDownloadConfig from '../hooks/useDownloadConfig';
+import useOriginalRatio from '../hooks/useOriginalRatio';
+import {
+  filterIllustrations,
+  flattenVisibleGroups,
+  useGroupBy,
+  useIllustrationSelection,
+} from '../hooks/useGalleryView';
+import {
+  checkModelStatus,
+  deleteIllustration,
+  deleteIllustrations,
+  retagIllustrations,
+  searchIllustrations,
+} from '../api';
 import { useToast } from './Toast';
 import IllustrationCard from './IllustrationCard';
 import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
 import ColorGroup from './ColorGroup';
-import DropdownSelect from './DropdownSelect';
+import SettingsSelect from './SettingsSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
-import useGroupConfig from '../hooks/useGroupConfig';
+import useGroupConfig, { removeManualAssignmentsForIllustrations } from '../hooks/useGroupConfig';
+import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { groupIllustrations } from '../utils/grouping';
 import { useLocale } from '../contexts/LocaleContext';
 
@@ -24,16 +38,11 @@ export default function SearchOverlay({ query, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [lastClickedId, setLastClickedId] = useState(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [retagging, setRetagging] = useState(false);
   const [retagConfirm, setRetagConfirm] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
-  const [groupBy, setGroupBy] = useState(() => {
-    try { return localStorage.getItem('gallery-group-by') === 'none' ? 'none' : (localStorage.getItem('gallery-group-by') ? 'mixed' : 'none'); }
-    catch { return 'none'; }
-  });
+  const [groupBy, setGroupBy] = useGroupBy();
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
@@ -41,6 +50,7 @@ export default function SearchOverlay({ query, onClose }) {
   const { addToast } = useToast();
   const [quality, setQuality] = useQuality();
   const [cardSize, setCardSize, cardSizeGrid] = useCardSize();
+  const [preserveAspectRatio] = useOriginalRatio();
   const { format } = useDownloadConfig();
   const { t } = useLocale();
 
@@ -55,7 +65,7 @@ export default function SearchOverlay({ query, onClose }) {
     { value: 'original', label: t('quality.original') },
   ], [t]);
 
-  const activeConfig = useGroupConfig('mixed');
+  const activeConfig = useGroupConfig();
 
   useEffect(() => {
     let cancelled = false;
@@ -74,48 +84,47 @@ export default function SearchOverlay({ query, onClose }) {
     return () => { cancelled = true; };
   }, [query]);
 
-  const items = results ? results.items : [];
+  const items = useMemo(() => results?.items || [], [results]);
 
   // ── Client-side filter (tags + prompts) ──────────────
 
-  const filteredItems = useMemo(() => {
-    if (!filterQuery.trim()) return items;
-    const q = filterQuery.trim().toLowerCase();
-    return items.filter((ill) => {
-      const tags = (ill.tags || '').toLowerCase();
-      const ext = ill.extended_data || {};
-      const pos = (ext['Positive Prompt'] || '').toLowerCase();
-      const neg = (ext['Negative Prompt'] || '').toLowerCase();
-      switch (filterScope) {
-        case 'tag':
-          return tags.includes(q);
-        case 'prompt':
-          return pos.includes(q) || neg.includes(q);
-        default:
-          return tags.includes(q) || pos.includes(q) || neg.includes(q);
-      }
-    });
-  }, [items, filterQuery, filterScope]);
+  const filteredItems = useMemo(
+    () => filterIllustrations(items, filterQuery, filterScope),
+    [filterQuery, filterScope, items],
+  );
 
   // ── Grouping ───────────────────────────────────────────
 
   const groupedIllustrations = useMemo(() => {
     if (groupBy === 'none' || activeConfig.pairs.length === 0 || filteredItems.length === 0) return null;
-    return groupIllustrations(filteredItems, activeConfig.pairs, activeConfig.otherColor, activeConfig.matchOrder);
-  }, [groupBy, filteredItems, activeConfig]);
+    return groupIllustrations(
+      filteredItems,
+      activeConfig.pairs,
+      activeConfig.otherColor,
+      activeConfig.matchOrder,
+      activeConfig.manualAssignments,
+    );
+  }, [
+    activeConfig.manualAssignments,
+    activeConfig.matchOrder,
+    activeConfig.otherColor,
+    activeConfig.pairs,
+    filteredItems,
+    groupBy,
+  ]);
 
   const displayedItems = useMemo(() => {
-    if (groupedIllustrations) {
-      const flat = [];
-      for (const g of groupedIllustrations) {
-        if (!collapsedGroups.has(g.id)) {
-          flat.push(...g.items);
-        }
-      }
-      return flat;
-    }
-    return filteredItems;
+    return flattenVisibleGroups(groupedIllustrations, collapsedGroups) || filteredItems;
   }, [groupedIllustrations, collapsedGroups, filteredItems]);
+
+  const {
+    selectedIds,
+    clearSelection,
+    removeFromSelection,
+    handleCardClick,
+    handleCtrlClick,
+    handleShiftClick,
+  } = useIllustrationSelection(displayedItems, setLightboxIndex);
 
   const toggleGroupCollapse = useCallback((groupId) => {
     setCollapsedGroups((prev) => {
@@ -132,12 +141,14 @@ export default function SearchOverlay({ query, onClose }) {
     if (!deleteTarget) return;
     try {
       await deleteIllustration(deleteTarget.id);
+      activeConfig.removeManualGroupIds([deleteTarget.id]);
+      await removeManualAssignmentsForIllustrations([deleteTarget.id]).catch(() => {});
       setResults((prev) => prev ? {
         ...prev,
         items: prev.items.filter((i) => i.id !== deleteTarget.id),
         total: prev.total - 1,
       } : prev);
-      setSelectedIds((prev) => { const next = new Set(prev); next.delete(deleteTarget.id); return next; });
+      removeFromSelection([deleteTarget.id]);
       addToast(t('searchOverlay.toast.deleted'), 'success');
     } catch (err) {
       addToast(err.message || t('searchOverlay.toast.deleteFailed'), 'error');
@@ -146,60 +157,33 @@ export default function SearchOverlay({ query, onClose }) {
     }
   };
 
-  const handleCardClick = (ill) => {
-    setSelectedIds(new Set());
-    setLastClickedId(ill.id);
-    const idx = displayedItems.findIndex((i) => i.id === ill.id);
-    if (idx !== -1) setLightboxIndex(idx);
-  };
-
-  const handleCtrlClick = (ill) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(ill.id)) next.delete(ill.id);
-      else next.add(ill.id);
-      return next;
-    });
-    setLastClickedId(ill.id);
-  };
-
-  const handleShiftClick = (ill) => {
-    if (lastClickedId === null) {
-      handleCtrlClick(ill);
-      return;
-    }
-    const lastIdx = displayedItems.findIndex((i) => i.id === lastClickedId);
-    const currIdx = displayedItems.findIndex((i) => i.id === ill.id);
-    if (lastIdx === -1 || currIdx === -1) return;
-    const [start, end] = lastIdx < currIdx ? [lastIdx, currIdx] : [currIdx, lastIdx];
-    const rangeIds = displayedItems.slice(start, end + 1).map((i) => i.id);
-    setSelectedIds((prev) => new Set([...prev, ...rangeIds]));
-    setLastClickedId(ill.id);
-  };
-
   const handleBatchDelete = async () => {
     setBatchDeleting(true);
     const ids = [...selectedIds];
-    let failed = 0;
-    for (const id of ids) {
-      try {
-        await deleteIllustration(id);
-      } catch {
-        failed++;
+    try {
+      const result = await deleteIllustrations(ids);
+      const deletedIds = new Set(result.deleted);
+      if (deletedIds.size > 0) {
+        activeConfig.removeManualGroupIds(result.deleted);
+        await removeManualAssignmentsForIllustrations(result.deleted).catch(() => {});
+        setResults((prev) => prev ? {
+          ...prev,
+          items: prev.items.filter((item) => !deletedIds.has(item.id)),
+          total: Math.max(0, prev.total - deletedIds.size),
+        } : prev);
+        removeFromSelection(result.deleted);
       }
-    }
-    setBatchDeleting(false);
-    setSelectedIds(new Set());
-    setLastClickedId(null);
-    setResults((prev) => prev ? {
-      ...prev,
-      items: prev.items.filter((i) => !ids.includes(i.id)),
-      total: prev.total - (ids.length - failed),
-    } : prev);
-    if (failed === 0) {
-      addToast(t('searchOverlay.toast.batchDeleted', { n: ids.length }), 'success');
-    } else {
-      addToast(t('searchOverlay.toast.batchPartial', { succeeded: ids.length - failed, failed }), 'error');
+      if (result.failed.length === 0) {
+        clearSelection();
+        addToast(t('searchOverlay.toast.batchDeleted', { n: result.deleted.length }), 'success');
+      } else {
+        addToast(t('searchOverlay.toast.batchPartial', {
+          succeeded: result.deleted.length,
+          failed: result.failed.length,
+        }), 'error');
+      }
+    } finally {
+      setBatchDeleting(false);
     }
   };
 
@@ -251,38 +235,26 @@ export default function SearchOverlay({ query, onClose }) {
     const selected = items.filter((i) => selectedIds.has(i.id));
     if (selected.length === 0) return;
     addToast(t('searchOverlay.toast.downloading', { n: selected.length }), 'success');
-    for (const ill of selected) {
-      try {
-        const res = await fetch(ill.file_url);
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        try {
-          a.download = resolveFilename(format, ill);
-        } catch {
-          a.download = ill.original_filename;
-        }
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch {
-        // continue
-      }
+    const result = await downloadIllustrations(selected, format);
+    if (result.failed.length > 0) {
+      addToast(t('searchOverlay.toast.downloadPartial', {
+        succeeded: result.downloaded.length,
+        failed: result.failed.length,
+      }), 'error');
     }
   };
 
   const handleLightboxDelete = async (ill) => {
     try {
       await deleteIllustration(ill.id);
+      activeConfig.removeManualGroupIds([ill.id]);
+      await removeManualAssignmentsForIllustrations([ill.id]).catch(() => {});
       setResults((prev) => prev ? {
         ...prev,
         items: prev.items.filter((i) => i.id !== ill.id),
         total: prev.total - 1,
       } : prev);
-      setSelectedIds((prev) => { const next = new Set(prev); next.delete(ill.id); return next; });
+      removeFromSelection([ill.id]);
       addToast(t('searchOverlay.toast.deleted'), 'success');
     } catch (err) {
       addToast(err.message || t('searchOverlay.toast.deleteFailed'), 'error');
@@ -290,7 +262,6 @@ export default function SearchOverlay({ query, onClose }) {
   };
 
   const cardProps = useCallback((ill) => ({
-    key: ill.id,
     illustration: ill,
     onClick: handleCardClick,
     onCtrlClick: handleCtrlClick,
@@ -299,7 +270,15 @@ export default function SearchOverlay({ query, onClose }) {
     isSelected: selectedIds.has(ill.id),
     showHoverActions: true,
     quality,
-  }), [selectedIds, lastClickedId, displayedItems, quality]);
+    preserveAspectRatio,
+  }), [
+    handleCardClick,
+    handleCtrlClick,
+    handleShiftClick,
+    preserveAspectRatio,
+    quality,
+    selectedIds,
+  ]);
 
   // ── Render ─────────────────────────────────────────────
 
@@ -348,12 +327,13 @@ export default function SearchOverlay({ query, onClose }) {
               inputClassName="w-full pl-3 pr-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
             />
             {items.length > 1 && (
-              <DropdownSelect
+              <SettingsSelect
+                variant="toolbar"
                 icon={Layers}
                 label={t('searchOverlay.group.label')}
                 options={translatedGroupOptions}
                 value={groupBy}
-                onChange={(v) => { setGroupBy(v); try { localStorage.setItem('gallery-group-by', v); } catch {} setCollapsedGroups(new Set()); }}
+                onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
                 rightElement={
                   groupBy !== 'none' ? (
                     <button
@@ -367,7 +347,8 @@ export default function SearchOverlay({ query, onClose }) {
                 }
               />
             )}
-            <DropdownSelect
+            <SettingsSelect
+              variant="toolbar"
               icon={Monitor}
               label={t('searchOverlay.quality.label')}
               options={translatedQualityOptions}
@@ -418,7 +399,7 @@ export default function SearchOverlay({ query, onClose }) {
                   cardSize={cardSize}
                 >
                   {group.items.map((ill) => (
-                    <IllustrationCard {...cardProps(ill)} />
+                    <IllustrationCard key={ill.id} {...cardProps(ill)} />
                   ))}
                 </ColorGroup>
               ))}
@@ -428,7 +409,7 @@ export default function SearchOverlay({ query, onClose }) {
             <div className={`grid ${cardSizeGrid} gap-4`}>
               <AnimatePresence mode="popLayout">
                 {filteredItems.map((ill) => (
-                  <IllustrationCard {...cardProps(ill)} />
+                  <IllustrationCard key={ill.id} {...cardProps(ill)} />
                 ))}
               </AnimatePresence>
             </div>
@@ -480,7 +461,7 @@ export default function SearchOverlay({ query, onClose }) {
                 {batchDeleting ? t('searchOverlay.batch.deleting') : t('searchOverlay.batch.delete')}
               </button>
               <button
-                onClick={() => { setSelectedIds(new Set()); setLastClickedId(null); }}
+                onClick={clearSelection}
                 className="px-3 py-2 rounded-lg text-sm text-content-muted hover:text-content-secondary transition-colors flex items-center gap-1.5"
               >
                 <X className="w-4 h-4" />

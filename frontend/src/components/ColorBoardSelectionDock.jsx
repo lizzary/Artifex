@@ -5,11 +5,11 @@ import { createPortal } from 'react-dom';
 import {
   Check, ChevronDown, Download, GripHorizontal, Image as ImageIcon, Loader2, Plus, Tag, Trash2, X,
 } from 'lucide-react';
-import { backendUrl } from '../api/url';
 import { useLocale } from '../contexts/LocaleContext';
-import { getAspectFitPreviewHeight } from '../utils/illustrationPreview';
+import { clamp, getAspectFitPreviewHeight } from '../utils/illustrationPreview';
 import { buildSelectionTagSummary, parseTagInput } from '../utils/illustrationTags';
 import ConfirmModal from './ConfirmModal';
+import IllustrationPreviewImage from './IllustrationPreviewImage';
 import TagPromptSuggest from './TagPromptSuggest';
 
 const TAG_PANEL_DEFAULT_HEIGHT = 336;
@@ -19,10 +19,6 @@ const DETAIL_PREVIEW_MEDIA_WIDTH = 220;
 const DETAIL_PREVIEW_MEDIA_MIN_HEIGHT = 88;
 const DETAIL_PREVIEW_MEDIA_MAX_HEIGHT = 320;
 const DETAIL_PREVIEW_CHROME_HEIGHT = 56;
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function getTagPanelHeightBounds() {
   if (typeof window === 'undefined') return { min: 300, max: 640 };
@@ -51,22 +47,11 @@ function IllustrationPreview({ illustration, anchorRect, quality }) {
       className="pointer-events-none fixed z-[110] w-[236px] overflow-hidden rounded-2xl border border-edge-primary bg-surface-secondary/95 p-2 shadow-2xl shadow-overlay/30 backdrop-blur-xl"
       style={{ left, top }}
     >
-      <div
-        className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-surface-tertiary"
-        style={{ height: mediaHeight }}
-      >
-        <img
-          key={illustration.id}
-          src={backendUrl(`${illustration.thumbnail_url}?quality=${quality === 'low' ? 'normal' : quality}`)}
-          alt={illustration.original_filename}
-          className="h-full w-full object-contain"
-          onError={(event) => {
-            if (event.currentTarget.dataset.lowQualityFallback) return;
-            event.currentTarget.dataset.lowQualityFallback = 'true';
-            event.currentTarget.src = backendUrl(`${illustration.thumbnail_url}?quality=low`);
-          }}
-        />
-      </div>
+      <IllustrationPreviewImage
+        illustration={illustration}
+        quality={quality}
+        height={mediaHeight}
+      />
       <div className="flex items-center gap-2 px-1 pb-0.5 pt-2">
         <ImageIcon className="h-3.5 w-3.5 shrink-0 text-content-muted" />
         <p className="truncate text-[11px] font-medium text-content-primary">
@@ -291,12 +276,6 @@ export default function ColorBoardSelectionDock({
     () => selectedIllustrations.map((illustration) => illustration.id),
     [selectedIllustrations],
   );
-
-  useEffect(() => {
-    if (selectedIllustrations.length > 0) return;
-    onTagPanelChange(false);
-    setConfirmDelete(false);
-  }, [onTagPanelChange, selectedIllustrations.length]);
 
   useEffect(() => {
     if (!tagPanelOpen) return undefined;

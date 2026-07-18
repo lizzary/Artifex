@@ -44,8 +44,7 @@ describe('IllustrationCard display modes', () => {
     expect(image).toHaveClass('object-contain');
     expect(image).not.toHaveClass('group-hover:scale-105');
     expect(image.parentElement).not.toHaveClass('aspect-square');
-    expect(image.parentElement).toHaveClass('illustration-original-ratio');
-    expect(image.parentElement.style.getPropertyValue('--illustration-aspect-ratio')).toBe('600 / 900');
+    expect(image.parentElement.style.aspectRatio).toBe('600 / 900');
     expect(image.parentElement.parentElement).toHaveClass('self-start');
   });
 });

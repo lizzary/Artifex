@@ -1,4 +1,5 @@
 import { backendUrl } from './url';
+import { invalidateTagPromptSuggestions } from '../utils/tagPromptCache';
 
 async function request(path, options = {}) {
   const url = backendUrl(path);
@@ -9,6 +10,12 @@ async function request(path, options = {}) {
     throw new Error(detail.detail || `Request failed: ${res.status}`);
   }
   return res.json();
+}
+
+async function requestAndInvalidateSuggestions(path, options) {
+  const result = await request(path, options);
+  invalidateTagPromptSuggestions();
+  return result;
 }
 
 // ── Groups ────────────────────────────────────────────
@@ -25,10 +32,6 @@ export function createGroup(name) {
   });
 }
 
-export function getGroup(groupId) {
-  return request(`/api/groups/${groupId}`);
-}
-
 export function updateGroup(groupId, data) {
   return request(`/api/groups/${groupId}`, {
     method: 'PUT',
@@ -38,12 +41,12 @@ export function updateGroup(groupId, data) {
 }
 
 export function deleteGroup(groupId) {
-  return request(`/api/groups/${groupId}`, { method: 'DELETE' });
+  return requestAndInvalidateSuggestions(`/api/groups/${groupId}`, { method: 'DELETE' });
 }
 
 // ── Illustrations ──────────────────────────────────────
 
-export function listIllustrations(groupId, offset = 0, limit = 200) {
+function listIllustrations(groupId, offset = 0, limit = 200) {
   return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`);
 }
 
@@ -68,50 +71,42 @@ export async function listAllIllustrations(groupId, batchSize = 5000) {
   return { items, total };
 }
 
-export function uploadIllustrations(groupId, files, skipAutoTag = false, conflictPolicy) {
-  const formData = new FormData();
-  files.forEach((f) => formData.append('files', f));
-  formData.append('skip_auto_tag', skipAutoTag ? 'true' : 'false');
-  if (conflictPolicy) formData.append('conflict_policy', conflictPolicy);
-  return request(
-    `/api/groups/${groupId}/illustrations/upload`,
-    { method: 'POST', body: formData },
-  );
-}
-
 export function uploadSingleIllustration(groupId, file, skipAutoTag = false, conflictPolicy) {
   const formData = new FormData();
   formData.append('files', file);
   formData.append('skip_auto_tag', skipAutoTag ? 'true' : 'false');
   if (conflictPolicy) formData.append('conflict_policy', conflictPolicy);
-  return request(
+  return requestAndInvalidateSuggestions(
     `/api/groups/${groupId}/illustrations/upload`,
     { method: 'POST', body: formData },
   );
 }
 
 export function retagIllustrations(ids) {
-  return request('/api/illustrations/retag', {
+  return requestAndInvalidateSuggestions('/api/illustrations/retag', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids }),
   });
 }
 
-export function getIllustration(illustrationId) {
-  return request(`/api/illustrations/${illustrationId}`);
-}
-
 export function updateIllustration(illustrationId, data) {
-  return request(`/api/illustrations/${illustrationId}`, {
+  return requestAndInvalidateSuggestions(`/api/illustrations/${illustrationId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
 }
 
-export function deleteIllustration(illustrationId) {
+function deleteIllustrationRequest(illustrationId) {
   return request(`/api/illustrations/${illustrationId}`, { method: 'DELETE' });
+}
+
+export function deleteIllustration(illustrationId) {
+  return requestAndInvalidateSuggestions(
+    `/api/illustrations/${illustrationId}`,
+    { method: 'DELETE' },
+  );
 }
 
 export async function deleteIllustrations(illustrationIds) {
@@ -119,17 +114,18 @@ export async function deleteIllustrations(illustrationIds) {
   const result = { deleted: [], failed: [] };
   for (const id of ids) {
     try {
-      await deleteIllustration(id);
+      await deleteIllustrationRequest(id);
       result.deleted.push(id);
     } catch {
       result.failed.push(id);
     }
   }
+  if (result.deleted.length > 0) invalidateTagPromptSuggestions();
   return result;
 }
 
 export function updateIllustrationTags(illustrationIds, operation, tags) {
-  return request('/api/illustrations/tags', {
+  return requestAndInvalidateSuggestions('/api/illustrations/tags', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids: illustrationIds, operation, tags }),

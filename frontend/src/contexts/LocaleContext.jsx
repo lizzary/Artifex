@@ -52,5 +52,3 @@ export function useLocale() {
   if (!ctx) throw new Error('useLocale must be used within a LocaleProvider');
   return ctx;
 }
-
-export { DEFAULT_LOCALE };
