@@ -115,3 +115,8 @@ html {
 .artifex-scrollbar.artifex-scrollbar-quiet::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Keep dense board cards from triggering hover hit-testing while another card owns the drag. */
+[data-color-board-world][data-drag-active="true"] [data-board-card]:not([data-dragging="true"]) {
+  pointer-events: none;
+}

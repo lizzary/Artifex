@@ -63,6 +63,21 @@ describe('color group board layout', () => {
     expect(layout.cards).toHaveLength(3);
   });
 
+  test('keeps expanding a dense color circle instead of stacking thousands of cards into the legacy radius', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const illustrations = Array.from({ length: 2000 }, (_, index) => illustration(index + 1, 'warm'));
+    const layout = buildColorBoardLayout(
+      illustrations,
+      [pair],
+      ['warm'],
+      {},
+      (index) => `Color group ${index}`,
+    );
+
+    expect(layout.circles[0].radius).toBeGreaterThan(2000);
+    expect(layout.cards).toHaveLength(2000);
+  });
+
   test('caps the Other row by both the user limit and responsive width', () => {
     const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
     const layout = buildColorBoardLayout(
@@ -191,5 +206,64 @@ describe('color group board layout', () => {
       fireEvent.wheel(viewport, { deltaY: 120, clientX: 500, clientY: 300 });
     }
     expect(screen.getByText('50%')).toBeInTheDocument();
+  });
+
+  test('updates drag offsets only on the cards participating in the drag', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const frameCallbacks = [];
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = jest.fn((callback) => {
+      frameCallbacks.push(callback);
+      return frameCallbacks.length;
+    });
+
+    try {
+      render(
+        <LocaleProvider>
+          <ColorGroupBoard
+            groupName="Studio"
+            illustrations={[illustration(1, 'warm'), illustration(2, 'warm')]}
+            pairs={[pair]}
+            matchOrder={['warm']}
+            manualAssignments={{}}
+            onAssign={jest.fn()}
+            onConfigure={jest.fn()}
+            onClose={jest.fn()}
+          />
+        </LocaleProvider>,
+      );
+
+      const firstCard = screen.getByRole('button', { name: /1\.png/ });
+      const secondCard = screen.getByRole('button', { name: /2\.png/ });
+      firstCard.setPointerCapture = jest.fn();
+      firstCard.hasPointerCapture = jest.fn(() => false);
+
+      const pointerDown = new MouseEvent('pointerdown', {
+        bubbles: true, button: 0, clientX: 20, clientY: 20,
+      });
+      const pointerMove = new MouseEvent('pointermove', {
+        bubbles: true, clientX: 60, clientY: 60,
+      });
+      Object.defineProperty(pointerDown, 'pointerId', { value: 7 });
+      Object.defineProperty(pointerMove, 'pointerId', { value: 7 });
+      fireEvent(firstCard, pointerDown);
+      fireEvent(firstCard, pointerMove);
+      frameCallbacks.shift()?.();
+
+      expect(firstCard.style.getPropertyValue('--board-drag-x')).not.toBe('');
+      expect(secondCard.style.getPropertyValue('--board-drag-x')).toBe('');
+      expect(firstCard.parentElement.style.getPropertyValue('--board-drag-x')).toBe('');
+      expect(firstCard).toHaveAttribute('data-dragging', 'true');
+      expect(secondCard).not.toHaveAttribute('data-dragging');
+      expect(firstCard.parentElement).toHaveAttribute('data-drag-active', 'true');
+      expect(document.querySelector('[data-board-circle="warm"]').style.filter).toBe('');
+
+      const pointerCancel = new MouseEvent('pointercancel', { bubbles: true });
+      Object.defineProperty(pointerCancel, 'pointerId', { value: 7 });
+      fireEvent(firstCard, pointerCancel);
+      expect(firstCard.parentElement).not.toHaveAttribute('data-drag-active');
+    } finally {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    }
   });
 });

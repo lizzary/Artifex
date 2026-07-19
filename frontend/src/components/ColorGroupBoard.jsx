@@ -8,23 +8,25 @@ import {
 } from 'lucide-react';
 import { backendUrl } from '../api/url';
 import { useLocale } from '../contexts/LocaleContext';
-import { getIllustrationMemberships, groupDisplayName } from '../utils/grouping';
+import {
+  buildColorBoardLayout,
+  CARD_SIZE,
+  FREE_CARD_COLUMN_GAP,
+  FREE_ROW_LIMIT_DEFAULT,
+  FREE_ROW_LIMIT_MAX,
+  FREE_ROW_LIMIT_MIN,
+  MAX_SCALE,
+  MIN_SCALE,
+  pointInCircle,
+  rectFromPoints,
+  WORLD_MARGIN,
+} from '../utils/colorBoardLayout';
 import { clamp, getAspectFitPreviewHeight } from '../utils/illustrationPreview';
 import ColorBoardSelectionDock from './ColorBoardSelectionDock';
 import IllustrationPreviewImage from './IllustrationPreviewImage';
 import InferenceIcon from './InferenceIcon';
 
-const CARD_SIZE = 78;
-const CIRCLE_GAP = 150;
-const WORLD_MARGIN = 180;
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 2;
-const FREE_CARD_COLUMN_GAP = 26;
-const FREE_CARD_ROW_GAP = 28;
 const FREE_ROW_LIMIT_STORAGE_KEY = 'color-board-free-row-limit';
-const FREE_ROW_LIMIT_MIN = 1;
-const FREE_ROW_LIMIT_MAX = 20;
-const FREE_ROW_LIMIT_DEFAULT = 10;
 const FREE_GRID_VIEWPORT_RATIO = 0.8;
 const PREVIEW_MEDIA_WIDTH = 240;
 const PREVIEW_MEDIA_MIN_HEIGHT = 80;
@@ -32,6 +34,8 @@ const PREVIEW_MEDIA_MAX_HEIGHT = 360;
 const PREVIEW_CHROME_HEIGHT = 64;
 const BOARD_CARD_QUALITY = 'low';
 const BOARD_PREVIEW_QUALITY = 'normal';
+
+export { buildColorBoardLayout } from '../utils/colorBoardLayout';
 
 function readFreeRowLimit() {
   try {
@@ -79,23 +83,6 @@ function useStableEvent(handler) {
   return useCallback((...args) => handlerRef.current(...args), []);
 }
 
-function circleRadius(itemCount) {
-  return clamp(230 + Math.sqrt(Math.max(itemCount, 1)) * 48, 258, 700);
-}
-
-function pointInCircle(point, circle) {
-  return Math.hypot(point.x - circle.x, point.y - circle.y) <= circle.radius;
-}
-
-function rectFromPoints(start, end) {
-  return {
-    left: Math.min(start.x, end.x),
-    top: Math.min(start.y, end.y),
-    right: Math.max(start.x, end.x),
-    bottom: Math.max(start.y, end.y),
-  };
-}
-
 function previewGeometry(illustration, clientX, clientY) {
   const mediaHeight = getAspectFitPreviewHeight(
     illustration,
@@ -121,7 +108,9 @@ const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget 
     return (
       <div
         key={circle.id}
-        className="pointer-events-none absolute rounded-full border-2 transition-[box-shadow,filter] duration-150"
+        data-board-circle={circle.id}
+        data-drop-target={isTarget ? 'true' : undefined}
+        className="pointer-events-none absolute rounded-full border-2"
         style={{
           left: circle.x - circle.radius,
           top: circle.y - circle.radius,
@@ -129,10 +118,9 @@ const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget 
           height: circle.radius * 2,
           backgroundColor: circle.color,
           borderColor: circle.borderColor,
-          boxShadow: isTarget
-            ? `0 0 0 10px ${circle.color}, 0 30px 80px rgb(var(--clr-overlay) / 0.18)`
-            : '0 24px 70px rgb(var(--clr-overlay) / 0.08)',
-          filter: isTarget ? 'saturate(1.2)' : undefined,
+          boxShadow: '0 24px 70px rgb(var(--clr-overlay) / 0.08)',
+          outline: isTarget ? `6px solid ${circle.borderColor}` : 'none',
+          outlineOffset: isTarget ? 6 : 0,
         }}
       >
         <div
@@ -174,6 +162,7 @@ const BoardCard = memo(function BoardCard({
   onMouseMove,
   onMouseLeave,
   onKeyboardSelect,
+  onElementChange,
 }) {
   const { t } = useLocale();
   const id = card.illustration.id;
@@ -186,11 +175,16 @@ const BoardCard = memo(function BoardCard({
   const SourceIcon = membership?.source === 'manual'
     ? Hand
     : membership?.source === 'computed' ? InferenceIcon : CircleDot;
+  const setElementRef = useCallback((element) => {
+    onElementChange(id, element);
+  }, [id, onElementChange]);
 
   return (
     <button
+      ref={setElementRef}
       type="button"
       data-board-card
+      data-dragging={dragging ? 'true' : undefined}
       aria-pressed={selected}
       aria-label={`${card.illustration.original_filename} · ${sourceLabel}`}
       className={`group/card absolute rounded-2xl border-2 bg-surface-secondary p-1 shadow-lg transition-[border-color,box-shadow,filter] focus:outline-none focus:ring-4 focus:ring-accent/30 ${
@@ -207,6 +201,7 @@ const BoardCard = memo(function BoardCard({
           ? `translate3d(var(--board-drag-x, 0px), var(--board-drag-y, 0px), 0) rotate(${card.rotation}deg) scale(1.05)`
           : `rotate(${card.rotation}deg)`,
         filter: dragging ? 'saturate(1.08)' : undefined,
+        willChange: dragging ? 'transform' : undefined,
       }}
       onPointerDown={(event) => onPointerDown(event, card)}
       onPointerMove={onPointerMove}
@@ -253,6 +248,7 @@ const BoardCardsLayer = memo(function BoardCardsLayer({
   onMouseMove,
   onMouseLeave,
   onKeyboardSelect,
+  onElementChange,
 }) {
   return cards.map((card) => {
     const id = card.illustration.id;
@@ -270,139 +266,11 @@ const BoardCardsLayer = memo(function BoardCardsLayer({
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
         onKeyboardSelect={onKeyboardSelect}
+        onElementChange={onElementChange}
       />
     );
   });
 });
-
-export function buildColorBoardLayout(
-  illustrations,
-  pairs,
-  matchOrder,
-  manualAssignments,
-  untitledLabel,
-  options = {},
-) {
-  const memberships = getIllustrationMemberships(
-    illustrations,
-    pairs,
-    matchOrder,
-    manualAssignments,
-  );
-  const itemsByGroup = new Map(pairs.map((pair) => [pair.id, []]));
-  const freeItems = [];
-
-  illustrations.forEach((illustration) => {
-    const membership = memberships.get(illustration.id);
-    const target = itemsByGroup.get(membership?.effectiveGroupId);
-    if (target) target.push(illustration);
-    else freeItems.push(illustration);
-  });
-
-  const rawCircles = pairs.map((pair, index) => {
-    const items = itemsByGroup.get(pair.id) || [];
-    const manualCount = items.filter((item) => memberships.get(item.id)?.source === 'manual').length;
-    return {
-      ...pair,
-      index,
-      items,
-      manualCount,
-      computedCount: items.length - manualCount,
-      label: groupDisplayName(pair) || untitledLabel(index + 1),
-      radius: circleRadius(items.length),
-    };
-  });
-
-  const columns = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(Math.max(rawCircles.length, 1)))));
-  const circles = [];
-  let cursorY = WORLD_MARGIN;
-  let widestRow = 0;
-
-  for (let rowStart = 0; rowStart < rawCircles.length; rowStart += columns) {
-    const row = rawCircles.slice(rowStart, rowStart + columns);
-    const rowRadius = Math.max(...row.map((circle) => circle.radius));
-    const rowCenterY = cursorY + rowRadius;
-    let cursorX = WORLD_MARGIN;
-    row.forEach((circle) => {
-      circles.push({
-        ...circle,
-        x: cursorX + circle.radius,
-        y: rowCenterY,
-      });
-      cursorX += circle.radius * 2 + CIRCLE_GAP;
-    });
-    widestRow = Math.max(widestRow, cursorX - CIRCLE_GAP + WORLD_MARGIN);
-    cursorY += rowRadius * 2 + CIRCLE_GAP;
-  }
-
-  const cards = [];
-  circles.forEach((circle) => {
-    const usableRadius = Math.max(90, circle.radius - 112);
-    const count = circle.items.length;
-    circle.items.forEach((illustration, index) => {
-      const angle = index * 2.3999632297 + circle.index * 0.57;
-      const distance = count <= 1 ? 0 : Math.sqrt((index + 0.35) / count) * usableRadius;
-      cards.push({
-        illustration,
-        membership: memberships.get(illustration.id),
-        x: circle.x + Math.cos(angle) * distance - CARD_SIZE / 2,
-        y: circle.y + Math.sin(angle) * distance - CARD_SIZE / 2,
-        rotation: ((Number(illustration.id) || index) % 7) - 3,
-      });
-    });
-  });
-
-  const circleBottom = circles.length
-    ? Math.max(...circles.map((circle) => circle.y + circle.radius))
-    : WORLD_MARGIN + 240;
-  const minimumWorldWidth = Math.max(widestRow, 1500);
-  const freeTop = circleBottom + 210;
-  const requestedFreeColumns = clamp(
-    Math.round(Number(options.freeRowLimit) || FREE_ROW_LIMIT_DEFAULT),
-    FREE_ROW_LIMIT_MIN,
-    FREE_ROW_LIMIT_MAX,
-  );
-  const requestedMaxFreeWidth = Number(options.maxFreeWidth);
-  const maxFreeWidth = Number.isFinite(requestedMaxFreeWidth)
-    ? Math.max(CARD_SIZE, requestedMaxFreeWidth)
-    : Number.POSITIVE_INFINITY;
-  const freeColumnStride = CARD_SIZE + FREE_CARD_COLUMN_GAP;
-  const responsiveFreeColumns = Number.isFinite(maxFreeWidth)
-    ? Math.max(1, Math.floor((maxFreeWidth - CARD_SIZE) / freeColumnStride) + 1)
-    : requestedFreeColumns;
-  const freeColumns = Math.min(requestedFreeColumns, responsiveFreeColumns);
-  const freeContentWidth = CARD_SIZE + Math.max(0, freeColumns - 1) * freeColumnStride;
-  const worldWidth = Math.max(minimumWorldWidth, freeContentWidth + WORLD_MARGIN * 2);
-  const freeLeft = (worldWidth - freeContentWidth) / 2;
-  freeItems.forEach((illustration, index) => {
-    cards.push({
-      illustration,
-      membership: memberships.get(illustration.id),
-      x: freeLeft + (index % freeColumns) * freeColumnStride,
-      y: freeTop + Math.floor(index / freeColumns) * (CARD_SIZE + FREE_CARD_ROW_GAP),
-      rotation: ((Number(illustration.id) || index) % 7) - 3,
-    });
-  });
-
-  const freeRows = Math.ceil(freeItems.length / freeColumns);
-  const worldHeight = Math.max(
-    circleBottom + 360,
-    freeTop + Math.max(1, freeRows) * (CARD_SIZE + FREE_CARD_ROW_GAP) + WORLD_MARGIN,
-  );
-
-  return {
-    cards,
-    circles,
-    freeItems,
-    freeColumns,
-    freeContentWidth,
-    freeLeft,
-    freeTop,
-    memberships,
-    worldWidth,
-    worldHeight,
-  };
-}
 
 export default function ColorGroupBoard({
   groupName,
@@ -422,6 +290,8 @@ export default function ColorGroupBoard({
   const { t } = useLocale();
   const viewportRef = useRef(null);
   const worldRef = useRef(null);
+  const cardElementsRef = useRef(new Map());
+  const draggingElementsRef = useRef([]);
   const selectionRectRef = useRef(null);
   const previewRef = useRef(null);
   const gestureRef = useRef(null);
@@ -551,10 +421,16 @@ export default function ColorGroupBoard({
     if (pending) applyWorldTransform(pending);
   }, [applyWorldTransform]);
 
+  const registerCardElement = useCallback((illustrationId, element) => {
+    if (element) cardElementsRef.current.set(illustrationId, element);
+    else cardElementsRef.current.delete(illustrationId);
+  }, []);
+
   const applyDragOffset = useCallback(({ x, y }) => {
-    if (!worldRef.current) return;
-    worldRef.current.style.setProperty('--board-drag-x', `${x}px`);
-    worldRef.current.style.setProperty('--board-drag-y', `${y}px`);
+    draggingElementsRef.current.forEach((element) => {
+      element.style.setProperty('--board-drag-x', `${x}px`);
+      element.style.setProperty('--board-drag-y', `${y}px`);
+    });
   }, []);
 
   const queueDragOffset = useCallback((offset) => {
@@ -573,6 +449,11 @@ export default function ColorGroupBoard({
     dragFrameRef.current = null;
     pendingDragOffsetRef.current = null;
     applyDragOffset({ x: 0, y: 0 });
+    draggingElementsRef.current.forEach((element) => {
+      element.removeAttribute('data-dragging');
+    });
+    if (worldRef.current) worldRef.current.removeAttribute('data-drag-active');
+    draggingElementsRef.current = [];
   }, [applyDragOffset]);
 
   const applyPreviewGeometry = useCallback((geometry) => {
@@ -612,8 +493,8 @@ export default function ColorGroupBoard({
     if (selectionRectRef.current) selectionRectRef.current.hidden = true;
   }, []);
 
-  const toWorld = useCallback((clientX, clientY) => {
-    const rect = viewportRef.current?.getBoundingClientRect();
+  const toWorld = useCallback((clientX, clientY, knownViewportRect) => {
+    const rect = knownViewportRect || viewportRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     const currentView = viewRef.current;
     return {
@@ -796,13 +677,14 @@ export default function ColorGroupBoard({
       event.button !== 0
       || event.target.closest?.('[data-board-card], button, a, input, select, textarea, [data-board-control]')
     ) return;
-    const start = toWorld(event.clientX, event.clientY);
+    const viewportRect = viewportRef.current?.getBoundingClientRect();
+    const start = toWorld(event.clientX, event.clientY, viewportRect);
     const additive = event.ctrlKey || event.metaKey || event.shiftKey;
     const baseSelection = additive ? new Set(selectedIds) : new Set();
     if (!additive) setSelectedIds((previous) => (previous.size === 0 ? previous : new Set()));
     viewportRef.current?.setPointerCapture(event.pointerId);
     gestureRef.current = {
-      type: 'marquee', pointerId: event.pointerId, start, baseSelection,
+      type: 'marquee', pointerId: event.pointerId, start, baseSelection, viewportRect,
     };
     drawSelectionRect(rectFromPoints(start, start));
     clearPreview();
@@ -821,7 +703,7 @@ export default function ColorGroupBoard({
     }
     if (gesture.type !== 'marquee') return;
 
-    const current = toWorld(event.clientX, event.clientY);
+    const current = toWorld(event.clientX, event.clientY, gesture.viewportRect);
     queueMarqueeSelection(gesture, current);
   });
 
@@ -839,7 +721,7 @@ export default function ColorGroupBoard({
     } else if (gesture.type === 'marquee') {
       cancelFrame(gesture.frameId);
       gesture.frameId = null;
-      applyMarqueeSelection(gesture, toWorld(event.clientX, event.clientY));
+      applyMarqueeSelection(gesture, toWorld(event.clientX, event.clientY, gesture.viewportRect));
       hideSelectionRect();
     }
     if (gesture.type === 'pan' || gesture.type === 'marquee') {
@@ -893,7 +775,9 @@ export default function ColorGroupBoard({
       pointerId: event.pointerId,
       ids,
       startClient: { x: event.clientX, y: event.clientY },
+      viewportRect: viewportRef.current?.getBoundingClientRect(),
       dragged: false,
+      activeDropTarget: null,
     };
     const finishAnywhere = (pointerEvent) => {
       if (pointerEvent.pointerId === gesture.pointerId) handleCardPointerUp(pointerEvent);
@@ -906,13 +790,23 @@ export default function ColorGroupBoard({
       window.removeEventListener('pointercancel', cancelAnywhere, true);
     };
     gestureRef.current = gesture;
+    event.currentTarget.setPointerCapture(event.pointerId);
     window.addEventListener('pointerup', finishAnywhere, true);
     window.addEventListener('pointercancel', cancelAnywhere, true);
-    setDraggingIds(new Set(ids));
     resetDragOffset();
+    draggingElementsRef.current = ids
+      .map((id) => cardElementsRef.current.get(id))
+      .filter(Boolean);
+    applyDragOffset({ x: 0, y: 0 });
+    draggingElementsRef.current.forEach((element) => {
+      element.setAttribute('data-dragging', 'true');
+    });
+    if (worldRef.current && draggingElementsRef.current.length > 0) {
+      worldRef.current.setAttribute('data-drag-active', 'true');
+    }
+    setDraggingIds(new Set(ids));
     setDropTarget(null);
     clearPreview();
-    event.currentTarget.setPointerCapture(event.pointerId);
   });
 
   const handleCardPointerMove = useStableEvent((event) => {
@@ -923,11 +817,15 @@ export default function ColorGroupBoard({
     if (!gesture.dragged && Math.hypot(dx, dy) < 5) return;
     gesture.dragged = true;
     queueDragOffset({ x: dx, y: dy });
-    const worldPoint = toWorld(event.clientX, event.clientY);
+    const worldPoint = toWorld(event.clientX, event.clientY, gesture.viewportRect);
     const target = layout.circles.find((circle) => pointInCircle(worldPoint, circle));
     gesture.hasDropTarget = true;
     gesture.dropTargetId = target?.id || null;
-    setDropTarget(target?.id || 'outside');
+    const nextDropTarget = target?.id || 'outside';
+    if (gesture.activeDropTarget !== nextDropTarget) {
+      gesture.activeDropTarget = nextDropTarget;
+      setDropTarget(nextDropTarget);
+    }
   });
 
   const handleCardPointerUp = useStableEvent((event) => {
@@ -936,7 +834,10 @@ export default function ColorGroupBoard({
     if (gesture.dragged && gesture.ids.length > 0) {
       const pointerTarget = gesture.hasDropTarget
         ? null
-        : layout.circles.find((circle) => pointInCircle(toWorld(event.clientX, event.clientY), circle));
+        : layout.circles.find((circle) => pointInCircle(
+          toWorld(event.clientX, event.clientY, gesture.viewportRect),
+          circle,
+        ));
       const targetId = gesture.hasDropTarget ? gesture.dropTargetId : pointerTarget?.id;
       const target = targetId ? circleById.get(targetId) : null;
       onAssign(gesture.ids, target?.id || null);
@@ -1143,6 +1044,7 @@ export default function ColorGroupBoard({
         ) : (
           <div
             ref={worldRef}
+            data-color-board-world
             className="absolute left-0 top-0 origin-top-left"
             style={{
               width: layout.worldWidth,
@@ -1202,6 +1104,7 @@ export default function ColorGroupBoard({
               onMouseMove={handleCardMouseMove}
               onMouseLeave={handleCardMouseLeave}
               onKeyboardSelect={handleKeyboardSelect}
+              onElementChange={registerCardElement}
             />
 
             <div
