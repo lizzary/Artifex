@@ -7,8 +7,8 @@ export const WORLD_MARGIN = 180;
 export const MIN_SCALE = 0.5;
 export const MAX_SCALE = 2;
 export const FREE_CARD_COLUMN_GAP = 26;
-export const FREE_ROW_LIMIT_MIN = 1;
-export const FREE_ROW_LIMIT_MAX = 20;
+export const FREE_ROW_LIMIT_MIN = 5;
+export const FREE_ROW_LIMIT_MAX = 30;
 export const FREE_ROW_LIMIT_DEFAULT = 10;
 
 const CIRCLE_GAP = 150;
@@ -166,15 +166,8 @@ export function buildColorBoardLayout(
     FREE_ROW_LIMIT_MIN,
     FREE_ROW_LIMIT_MAX,
   );
-  const requestedMaxFreeWidth = Number(options.maxFreeWidth);
-  const maxFreeWidth = Number.isFinite(requestedMaxFreeWidth)
-    ? Math.max(CARD_SIZE, requestedMaxFreeWidth)
-    : Number.POSITIVE_INFINITY;
   const freeColumnStride = CARD_SIZE + FREE_CARD_COLUMN_GAP;
-  const responsiveFreeColumns = Number.isFinite(maxFreeWidth)
-    ? Math.max(1, Math.floor((maxFreeWidth - CARD_SIZE) / freeColumnStride) + 1)
-    : requestedFreeColumns;
-  const freeColumns = Math.min(requestedFreeColumns, responsiveFreeColumns);
+  const freeColumns = requestedFreeColumns;
   const freeContentWidth = CARD_SIZE + Math.max(0, freeColumns - 1) * freeColumnStride;
   const worldWidth = Math.max(minimumWorldWidth, freeContentWidth + WORLD_MARGIN * 2);
   const freeLeft = (worldWidth - freeContentWidth) / 2;

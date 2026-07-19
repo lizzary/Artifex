@@ -113,10 +113,10 @@ describe('color group board layout', () => {
     expect(layout.cards).toHaveLength(2000);
   });
 
-  test('caps the Other row by both the user limit and responsive width', () => {
+  test('keeps the Other grid fixed at the committed row limit regardless of viewport width', () => {
     const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
     const layout = buildColorBoardLayout(
-      Array.from({ length: 8 }, (_, index) => illustration(index + 1)),
+      Array.from({ length: 14 }, (_, index) => illustration(index + 1)),
       [pair],
       ['warm'],
       {},
@@ -124,10 +124,11 @@ describe('color group board layout', () => {
       { freeRowLimit: 12, maxFreeWidth: 286 },
     );
 
-    expect(layout.freeColumns).toBe(3);
-    expect(layout.freeContentWidth).toBeLessThanOrEqual(286);
-    expect(layout.cards[3].x).toBe(layout.cards[0].x);
-    expect(layout.cards[3].y).toBeGreaterThan(layout.cards[0].y);
+    expect(layout.freeColumns).toBe(12);
+    expect(layout.freeContentWidth).toBeGreaterThan(286);
+    expect(layout.cards[11].y).toBe(layout.cards[0].y);
+    expect(layout.cards[12].x).toBe(layout.cards[0].x);
+    expect(layout.cards[12].y).toBeGreaterThan(layout.cards[0].y);
   });
 
   test('shares rotated-card hit testing across renderers', () => {
@@ -212,7 +213,7 @@ describe('color group board layout', () => {
     );
   });
 
-  test('lets the user persist the maximum number of Other thumbnails per row', () => {
+  test('applies and persists the Other row limit only after the slider is released', () => {
     const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
     render(
       <LocaleProvider>
@@ -230,9 +231,21 @@ describe('color group board layout', () => {
     );
 
     const rowLimit = screen.getByRole('slider', { name: 'Maximum thumbnails per row' });
+    const world = document.querySelector('[data-color-board-world]');
+    const initialWorldWidth = world.style.width;
     expect(rowLimit).toHaveValue('10');
+    expect(rowLimit).toHaveAttribute('min', '5');
+    expect(rowLimit).toHaveAttribute('max', '30');
+
     fireEvent.change(rowLimit, { target: { value: '16' } });
+
     expect(rowLimit).toHaveValue('16');
+    expect(world.style.width).toBe(initialWorldWidth);
+    expect(localStorage.getItem('color-board-free-row-limit')).toBeNull();
+
+    fireEvent.pointerUp(rowLimit);
+
+    expect(world.style.width).not.toBe(initialWorldWidth);
     expect(localStorage.getItem('color-board-free-row-limit')).toBe('16');
   });
 
@@ -296,13 +309,17 @@ describe('color group board layout', () => {
     expect(previewImage).toHaveAttribute('src', '/api/illustrations/1/thumbnail?quality=low');
   });
 
-  test('zooms with the wheel and clamps the board between 50% and 200%', () => {
+  test('zooms between 50% and 200% without reflowing the Other grid', () => {
     const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const illustrations = [
+      illustration(1, 'warm'),
+      ...Array.from({ length: 14 }, (_, index) => illustration(index + 2)),
+    ];
     const { container } = render(
       <LocaleProvider>
         <ColorGroupBoard
           groupName="Studio"
-          illustrations={[illustration(1, 'warm')]}
+          illustrations={illustrations}
           pairs={[pair]}
           matchOrder={['warm']}
           manualAssignments={{}}
@@ -313,6 +330,13 @@ describe('color group board layout', () => {
       </LocaleProvider>,
     );
     const viewport = container.querySelector('[data-color-board-viewport]');
+    const world = container.querySelector('[data-color-board-world]');
+    const secondRowCard = screen.getByRole('button', { name: /12\.png/ });
+    const initialGridGeometry = {
+      left: secondRowCard.style.left,
+      top: secondRowCard.style.top,
+      worldWidth: world.style.width,
+    };
 
     for (let index = 0; index < 30; index += 1) {
       fireEvent.wheel(viewport, { deltaY: -120, clientX: 500, clientY: 300 });
@@ -323,6 +347,9 @@ describe('color group board layout', () => {
       fireEvent.wheel(viewport, { deltaY: 120, clientX: 500, clientY: 300 });
     }
     expect(screen.getByText('50%')).toBeInTheDocument();
+    expect(secondRowCard.style.left).toBe(initialGridGeometry.left);
+    expect(secondRowCard.style.top).toBe(initialGridGeometry.top);
+    expect(world.style.width).toBe(initialGridGeometry.worldWidth);
   });
 
   test('updates drag offsets only on the cards participating in the drag', () => {

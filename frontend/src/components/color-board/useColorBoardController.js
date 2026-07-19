@@ -4,7 +4,6 @@ import {
 import {
   buildColorBoardLayout,
   CARD_SIZE,
-  FREE_CARD_COLUMN_GAP,
   FREE_ROW_LIMIT_DEFAULT,
   FREE_ROW_LIMIT_MAX,
   FREE_ROW_LIMIT_MIN,
@@ -17,7 +16,6 @@ import {
 } from '../../utils/colorBoardLayout';
 import { clamp, getAspectFitPreviewHeight } from '../../utils/illustrationPreview';
 import {
-  FREE_GRID_VIEWPORT_RATIO,
   FREE_ROW_LIMIT_STORAGE_KEY,
   PREVIEW_CHROME_HEIGHT,
   PREVIEW_MEDIA_MAX_HEIGHT,
@@ -121,9 +119,6 @@ export default function useColorBoardController({
   const [lastAction, setLastAction] = useState('');
   const [tagPanelOpen, setTagPanelOpen] = useState(false);
   const [freeRowLimit, setFreeRowLimitState] = useState(readFreeRowLimit);
-  const [viewportWidth, setViewportWidth] = useState(() => (
-    typeof window === 'undefined' ? 1280 : window.innerWidth || 1280
-  ));
 
   previewRef.current = preview;
 
@@ -137,35 +132,18 @@ export default function useColorBoardController({
     try { localStorage.setItem(FREE_ROW_LIMIT_STORAGE_KEY, String(nextValue)); } catch {}
   }, []);
 
-  const availableFreeWidth = Math.max(
-    CARD_SIZE,
-    (viewportWidth * FREE_GRID_VIEWPORT_RATIO) / view.scale,
-  );
-  const responsiveFreeColumnLimit = Math.min(
-    freeRowLimit,
-    Math.max(
-      1,
-      Math.floor(
-        (availableFreeWidth - CARD_SIZE) / (CARD_SIZE + FREE_CARD_COLUMN_GAP),
-      ) + 1,
-    ),
-  );
-  const maxFreeWidth = CARD_SIZE
-    + Math.max(0, responsiveFreeColumnLimit - 1) * (CARD_SIZE + FREE_CARD_COLUMN_GAP);
-
   const layout = useMemo(() => buildColorBoardLayout(
     illustrations,
     pairs,
     matchOrder,
     manualAssignments,
     (index) => t('colorBoard.untitledGroup', { n: index }),
-    { freeRowLimit, maxFreeWidth },
+    { freeRowLimit },
   ), [
     freeRowLimit,
     illustrations,
     manualAssignments,
     matchOrder,
-    maxFreeWidth,
     pairs,
     t,
   ]);
@@ -298,7 +276,6 @@ export default function useColorBoardController({
     if (!rect) return;
     const width = rect.width || window.innerWidth;
     const height = rect.height || window.innerHeight;
-    setViewportWidth(width);
     const scale = clamp(
       Math.min((width - 120) / layout.worldWidth, (height - 120) / layout.worldHeight),
       MIN_SCALE,
@@ -315,7 +292,6 @@ export default function useColorBoardController({
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
     const width = rect.width || window.innerWidth;
-    setViewportWidth(width);
     const scale = width < 900 ? 0.58 : 0.72;
     commitView({
       scale,

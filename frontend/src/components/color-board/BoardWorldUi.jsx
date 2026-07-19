@@ -1,3 +1,6 @@
+import {
+  useCallback, useEffect, useRef, useState,
+} from 'react';
 import { Hand, MousePointer2 } from 'lucide-react';
 import { useLocale } from '../../contexts/LocaleContext';
 import InferenceIcon from '../InferenceIcon';
@@ -58,6 +61,45 @@ export function BoardFreeItemsControl({
   onFreeRowLimitChange,
 }) {
   const { t } = useLocale();
+  const [draftRowLimit, setDraftRowLimit] = useState(freeRowLimit);
+  const draftRowLimitRef = useRef(freeRowLimit);
+  const committedRowLimitRef = useRef(freeRowLimit);
+  const interactingRef = useRef(false);
+
+  useEffect(() => {
+    committedRowLimitRef.current = freeRowLimit;
+    if (interactingRef.current) return;
+    draftRowLimitRef.current = freeRowLimit;
+    setDraftRowLimit(freeRowLimit);
+  }, [freeRowLimit]);
+
+  const updateDraft = useCallback((value) => {
+    const nextValue = Number(value);
+    interactingRef.current = true;
+    draftRowLimitRef.current = nextValue;
+    setDraftRowLimit(nextValue);
+  }, []);
+
+  const commitDraft = useCallback((nextValue) => {
+    interactingRef.current = false;
+    if (nextValue === committedRowLimitRef.current) return;
+    committedRowLimitRef.current = nextValue;
+    onFreeRowLimitChange(nextValue);
+  }, [onFreeRowLimitChange]);
+
+  const commitFromControl = useCallback((event) => {
+    const nextValue = Number(event.currentTarget.value);
+    draftRowLimitRef.current = nextValue;
+    setDraftRowLimit(nextValue);
+    commitDraft(nextValue);
+  }, [commitDraft]);
+
+  const cancelDraft = useCallback(() => {
+    interactingRef.current = false;
+    draftRowLimitRef.current = committedRowLimitRef.current;
+    setDraftRowLimit(committedRowLimitRef.current);
+  }, []);
+
   if (layout.freeItems.length === 0) return null;
 
   return (
@@ -78,22 +120,23 @@ export function BoardFreeItemsControl({
         title={t('colorBoard.free.rowLimitHint')}
       >
         <span className="whitespace-nowrap text-[10px] font-medium text-content-secondary">
-          {t('colorBoard.free.rowLimit', { count: freeRowLimit })}
+          {t('colorBoard.free.rowLimit', { count: draftRowLimit })}
         </span>
         <input
           type="range"
           min={FREE_ROW_LIMIT_MIN}
           max={FREE_ROW_LIMIT_MAX}
-          value={freeRowLimit}
-          onChange={(event) => onFreeRowLimitChange(event.target.value)}
+          step={1}
+          value={draftRowLimit}
+          onChange={(event) => updateDraft(event.target.value)}
+          onPointerDown={() => { interactingRef.current = true; }}
+          onPointerUp={commitFromControl}
+          onPointerCancel={cancelDraft}
+          onKeyUp={commitFromControl}
+          onBlur={commitFromControl}
           aria-label={t('colorBoard.free.rowLimitLabel')}
           className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-edge-secondary accent-accent"
         />
-        {layout.freeColumns < freeRowLimit && (
-          <span className="whitespace-nowrap rounded-full bg-surface-tertiary px-1.5 py-0.5 text-[9px] tabular-nums text-content-muted">
-            {t('colorBoard.free.currentColumns', { count: layout.freeColumns })}
-          </span>
-        )}
       </label>
     </div>
   );
