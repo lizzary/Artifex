@@ -7,6 +7,9 @@ import ConfirmModal from '../components/ConfirmModal';
 import NamingFormatInput from '../components/NamingFormatInput';
 import SettingsSelect from '../components/SettingsSelect';
 import useDownloadConfig from '../hooks/useDownloadConfig';
+import useColorBoardRendererPreference, {
+  COLOR_BOARD_RENDERER_OPTIONS,
+} from '../utils/colorBoardRendererPreference';
 import {
   deleteDefaultModel,
   deleteModel,
@@ -26,11 +29,17 @@ const CONFLICT_POLICY_OPTIONS = [
   {value: 'skip', labelKey: 'settings.general.conflictPolicy.skip'},
   {value: 'overwrite', labelKey: 'settings.general.conflictPolicy.overwrite'},
 ];
+const COLOR_BOARD_RENDERER_SELECT_OPTIONS = [
+  { value: COLOR_BOARD_RENDERER_OPTIONS.AUTO, labelKey: 'settings.general.boardRenderer.auto' },
+  { value: COLOR_BOARD_RENDERER_OPTIONS.WEBGL, labelKey: 'settings.general.boardRenderer.webgl' },
+  { value: COLOR_BOARD_RENDERER_OPTIONS.DOM, labelKey: 'settings.general.boardRenderer.dom' },
+];
 
 export default function SettingsPage() {
   const { locale, setLocale, t } = useLocale();
   const { addToast } = useToast();
   const { format, setFormat } = useDownloadConfig();
+  const [boardRenderer, setBoardRenderer] = useColorBoardRendererPreference();
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formatSaved, setFormatSaved] = useState(false);
@@ -208,6 +217,29 @@ export default function SettingsPage() {
                 onChange={setLocale}
                 ariaLabel={t('settings.general.language')}
                 options={LANG_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-start gap-3 pr-4">
+                <Monitor className="w-5 h-5 text-content-tertiary mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-sm font-medium text-content-primary">{t('settings.general.boardRenderer')}</span>
+                  <p className="text-xs text-content-muted mt-0.5">{t('settings.general.boardRendererDesc')}</p>
+                </div>
+              </div>
+              <SettingsSelect
+                value={boardRenderer}
+                onChange={(value) => {
+                  setBoardRenderer(value);
+                  addToast(t('settings.toast.saved'), 'success');
+                }}
+                ariaLabel={t('settings.general.boardRenderer')}
+                minWidth={180}
+                options={COLOR_BOARD_RENDERER_SELECT_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey),
+                }))}
               />
             </div>
 

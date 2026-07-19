@@ -3,6 +3,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ColorGroupBoard, { buildColorBoardLayout } from './ColorGroupBoard';
 import { LocaleProvider } from '../contexts/LocaleContext';
+import {
+  cardsInBoardViewport,
+  hitTestColorBoardCard,
+} from '../utils/colorBoardLayout';
+import {
+  COLOR_BOARD_RENDERER_OPTIONS,
+  COLOR_BOARD_RENDERER_STORAGE_KEY,
+} from '../utils/colorBoardRendererPreference';
 
 jest.mock('framer-motion', () => {
   const ReactModule = require('react');
@@ -10,6 +18,32 @@ jest.mock('framer-motion', () => {
     children, initial, animate, exit, ...props
   }, ref) => <div ref={ref} {...props}>{children}</div>);
   return { motion: { div: MotionDiv } };
+});
+
+jest.mock('./color-board/WebGLBoardRenderer', () => {
+  const ReactModule = require('react');
+  const MockWebGLBoardRenderer = ReactModule.forwardRef(({ onUnavailable }, ref) => {
+    ReactModule.useImperativeHandle(ref, () => ({
+      beginDrag() {},
+      drawSelectionRect() {},
+      endDrag() {},
+      hideSelectionRect() {},
+      setDragOffset() {},
+      setHoveredCard() {},
+      setView() {},
+      usesPointerHitTesting: true,
+    }), []);
+    return ReactModule.createElement(
+      'div',
+      { 'data-board-renderer': 'webgl', 'data-testid': 'mock-webgl-renderer' },
+      ReactModule.createElement(
+        'button',
+        { onClick: () => onUnavailable(new Error('mock WebGL failure')), type: 'button' },
+        'Simulate WebGL failure',
+      ),
+    );
+  });
+  return { __esModule: true, default: MockWebGLBoardRenderer };
 });
 
 const illustration = (id, tags = '') => ({
@@ -35,6 +69,7 @@ describe('color group board layout', () => {
   beforeEach(() => {
     localStorage.setItem('gallery-locale', 'en');
     localStorage.removeItem('color-board-free-row-limit');
+    localStorage.removeItem(COLOR_BOARD_RENDERER_STORAGE_KEY);
   });
 
   test('places every illustration by effective group while keeping manual-only circles', () => {
@@ -93,6 +128,88 @@ describe('color group board layout', () => {
     expect(layout.freeContentWidth).toBeLessThanOrEqual(286);
     expect(layout.cards[3].x).toBe(layout.cards[0].x);
     expect(layout.cards[3].y).toBeGreaterThan(layout.cards[0].y);
+  });
+
+  test('shares rotated-card hit testing across renderers', () => {
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const layout = buildColorBoardLayout(
+      [illustration(1, 'warm')],
+      [pair],
+      ['warm'],
+      {},
+      (index) => `Color group ${index}`,
+    );
+    const card = layout.cards[0];
+
+    expect(hitTestColorBoardCard(layout.cards, {
+      x: card.x + 39,
+      y: card.y + 39,
+    })).toBe(card);
+    expect(hitTestColorBoardCard(layout.cards, {
+      x: card.x - 100,
+      y: card.y - 100,
+    })).toBeNull();
+    expect(hitTestColorBoardCard([{
+      ...card,
+      rotation: 0,
+    }], {
+      x: card.x + 1,
+      y: card.y + 1,
+    })).toBeNull();
+  });
+
+  test('culls only cards outside the WebGL viewport without changing layout coordinates', () => {
+    const cards = [
+      { illustration: illustration(1), x: 10, y: 20, rotation: 0 },
+      { illustration: illustration(2), x: 500, y: 500, rotation: 3 },
+    ];
+
+    const visible = cardsInBoardViewport(cards, {
+      left: 0, top: 0, right: 200, bottom: 200,
+    }, 0);
+
+    expect(visible).toEqual([cards[0]]);
+    expect(visible[0]).toBe(cards[0]);
+    expect(cardsInBoardViewport(cards, {
+      left: 0, top: 0, right: 200, bottom: 200,
+    }, 0, (card) => (card === cards[1] ? { x: -400, y: -400 } : null)))
+      .toEqual(cards);
+  });
+
+  test('mounts only WebGL when requested and falls back to DOM without changing the device preference', async () => {
+    localStorage.setItem(
+      COLOR_BOARD_RENDERER_STORAGE_KEY,
+      COLOR_BOARD_RENDERER_OPTIONS.WEBGL,
+    );
+    const pair = { id: 'warm', customName: 'Warm', terms: [automaticTerm('warm')] };
+    const { container } = render(
+      <LocaleProvider>
+        <ColorGroupBoard
+          groupName="Studio"
+          illustrations={[illustration(1, 'warm')]}
+          pairs={[pair]}
+          matchOrder={['warm']}
+          manualAssignments={{}}
+          onAssign={jest.fn()}
+          onConfigure={jest.fn()}
+          onClose={jest.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(await screen.findByTestId('mock-webgl-renderer')).toBeInTheDocument();
+    expect(container.querySelector('[data-board-renderer="dom"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-board-card]')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate WebGL failure' }));
+
+    expect(await screen.findByText(/Switched to DOM compatibility mode/)).toBeInTheDocument();
+    expect(container.querySelector('[data-board-renderer="webgl"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-board-renderer="dom"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-board-card]')).toHaveLength(1);
+    expect(localStorage.getItem(COLOR_BOARD_RENDERER_STORAGE_KEY)).toBe(
+      COLOR_BOARD_RENDERER_OPTIONS.WEBGL,
+    );
   });
 
   test('lets the user persist the maximum number of Other thumbnails per row', () => {

@@ -2,6 +2,7 @@ import { getIllustrationMemberships, groupDisplayName } from './grouping';
 import { clamp } from './illustrationPreview';
 
 export const CARD_SIZE = 78;
+export const CARD_RADIUS = 16;
 export const WORLD_MARGIN = 180;
 export const MIN_SCALE = 0.5;
 export const MAX_SCALE = 2;
@@ -29,6 +30,53 @@ export function rectFromPoints(start, end) {
     right: Math.max(start.x, end.x),
     bottom: Math.max(start.y, end.y),
   };
+}
+
+export function pointInBoardCard(point, card) {
+  const centerX = card.x + CARD_SIZE / 2;
+  const centerY = card.y + CARD_SIZE / 2;
+  const radians = -(card.rotation || 0) * Math.PI / 180;
+  const dx = point.x - centerX;
+  const dy = point.y - centerY;
+  const localX = dx * Math.cos(radians) - dy * Math.sin(radians);
+  const localY = dx * Math.sin(radians) + dy * Math.cos(radians);
+  const halfSize = CARD_SIZE / 2;
+  const absoluteX = Math.abs(localX);
+  const absoluteY = Math.abs(localY);
+  if (absoluteX > halfSize || absoluteY > halfSize) return false;
+  const cornerStart = halfSize - CARD_RADIUS;
+  if (absoluteX <= cornerStart || absoluteY <= cornerStart) return true;
+  return Math.hypot(absoluteX - cornerStart, absoluteY - cornerStart) <= CARD_RADIUS;
+}
+
+export function hitTestColorBoardCard(cards, point) {
+  for (let index = cards.length - 1; index >= 0; index -= 1) {
+    if (pointInBoardCard(point, cards[index])) return cards[index];
+  }
+  return null;
+}
+
+export function cardsInBoardViewport(
+  cards,
+  bounds,
+  margin = CARD_SIZE,
+  offsetForCard = null,
+) {
+  const left = bounds.left - margin;
+  const top = bounds.top - margin;
+  const right = bounds.right + margin;
+  const bottom = bounds.bottom + margin;
+  return cards.filter((card) => {
+    const offset = offsetForCard?.(card);
+    const x = card.x + (offset?.x || 0);
+    const y = card.y + (offset?.y || 0);
+    return (
+      x + CARD_SIZE >= left
+      && y + CARD_SIZE >= top
+      && x <= right
+      && y <= bottom
+    );
+  });
 }
 
 export function buildColorBoardLayout(
