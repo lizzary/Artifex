@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Plus } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -21,10 +21,12 @@ export default function HomePage() {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [searchQuery, setSearchQuery] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deletingGroupId, setDeletingGroupId] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null); // group to rename
   const [quality] = useQuality();
   const { t } = useLocale();
   const { applyOrder, persistOrder } = useGroupOrder();
+  const deleteInFlightRef = useRef(false);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -70,15 +72,23 @@ export default function HomePage() {
   };
 
   const handleDelete = async () => {
-    if (!deleteConfirm) return;
+    if (!deleteConfirm || deleteInFlightRef.current) return;
+    const target = deleteConfirm;
+    deleteInFlightRef.current = true;
+    setDeletingGroupId(target.id);
+    setError('');
     try {
-      await deleteGroup(deleteConfirm.id);
-      await removeGroupConfigScope(deleteConfirm.id).catch(() => {});
+      await deleteGroup(target.id);
+      setGroups((current) => current.filter((group) => group.id !== target.id));
       setDeleteConfirm(null);
-      await fetchGroups();
       setError('');
+      void removeGroupConfigScope(target.id).catch(() => {});
+      void fetchGroups();
     } catch (err) {
       setError(err.message || t('home.error.delete'));
+    } finally {
+      deleteInFlightRef.current = false;
+      setDeletingGroupId(null);
     }
   };
 
@@ -175,8 +185,12 @@ export default function HomePage() {
           confirmText={t('home.deleteConfirm')}
           cancelText={t('home.deleteCancel')}
           danger
+          pending={deletingGroupId === deleteConfirm.id}
+          pendingText={t('home.deleting')}
           onConfirm={handleDelete}
-          onCancel={() => setDeleteConfirm(null)}
+          onCancel={() => {
+            if (!deleteInFlightRef.current) setDeleteConfirm(null);
+          }}
         />
       )}
 

@@ -55,6 +55,8 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"gpu_enabled":            true,
 		"active_model":           true,
 		"upload_conflict_policy": true,
+		"upload_workers":         true,
+		"tagger_slots":           true,
 		"group_order":            true,
 		"group_configs":          true,
 	}
@@ -87,6 +89,14 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			if str, ok := val.(string); ok && (str == "save_all" || str == "skip" || str == "overwrite") {
 				current.UploadConflictPolicy = str
 			}
+		case "upload_workers":
+			if n, ok := val.(float64); ok && n >= 1 && n <= settings.MaxUploadWorkers && n == float64(int(n)) {
+				current.UploadWorkers = int(n)
+			}
+		case "tagger_slots":
+			if n, ok := val.(float64); ok && n >= 1 && n <= settings.MaxTaggerSlots && n == float64(int(n)) {
+				current.TaggerSlots = int(n)
+			}
 		case "group_order":
 			current.GroupOrder = coerceIntSlice(val)
 		case "group_configs":
@@ -107,6 +117,8 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Failed to save settings")
 		return
 	}
+	s.SetUploadWorkers(current.UploadWorkers)
+	tagger.SetTaggerSlots(current.TaggerSlots)
 
 	if shouldReload {
 		if err := tagger.LoadTagger(s.ModelsDir()); err != nil {

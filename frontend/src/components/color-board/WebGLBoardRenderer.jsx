@@ -102,6 +102,7 @@ const WebGLBoardRenderer = forwardRef(function WebGLBoardRenderer({
   const sceneRef = useRef(null);
   const badgeElementsRef = useRef(new Map());
   const dragStateRef = useRef({ ids: new Set(), offset: { x: 0, y: 0 } });
+  const pointerFocusRef = useRef(false);
   const propsRef = useRef(null);
   const [visibleCards, setVisibleCards] = useState([]);
   const [activeCardId, setActiveCardId] = useState(null);
@@ -218,10 +219,23 @@ const WebGLBoardRenderer = forwardRef(function WebGLBoardRenderer({
   }, []);
 
   const handleKeyboardFocus = useCallback(() => {
+    if (pointerFocusRef.current) return;
     if (visibleCards.length === 0) return;
     const selected = visibleCards.find((card) => selectedIds.has(card.illustration.id));
     focusCard(selected?.illustration.id ?? visibleCards[0].illustration.id);
   }, [focusCard, selectedIds, visibleCards]);
+
+  const handlePointerFocus = useCallback((event) => {
+    // The WebGL canvas uses one focusable listbox for keyboard accessibility.
+    // Pointer focus on blank canvas must not synthesize focus on its first card.
+    pointerFocusRef.current = true;
+    setActiveCardId(null);
+    sceneRef.current?.setFocusedCard(null);
+    if (document.activeElement !== event.currentTarget) {
+      event.currentTarget.focus({ preventScroll: true });
+    }
+    pointerFocusRef.current = false;
+  }, []);
 
   const handleKeyboardBlur = useCallback((event) => {
     if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -272,6 +286,7 @@ const WebGLBoardRenderer = forwardRef(function WebGLBoardRenderer({
         aria-label={t('colorBoard.webgl.accessibleLabel')}
         aria-multiselectable="true"
         aria-activedescendant={activeOptionId}
+        onPointerDownCapture={handlePointerFocus}
         onFocus={handleKeyboardFocus}
         onBlur={handleKeyboardBlur}
         onKeyDown={handleKeyDown}

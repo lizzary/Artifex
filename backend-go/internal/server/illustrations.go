@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"artifex-backend/internal/database"
 	"artifex-backend/internal/metadata"
@@ -148,17 +150,20 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 		Failed:      make([]models.UploadConflictItem, 0),
 	}
 
-	for _, fh := range files {
+	prepared := s.prepareUploads(r.Context(), groupID, files, autoTagEnabled)
+	for index, fh := range files {
 		safeFilename := filepath.Base(fh.Filename)
-
-		conflictID, hasConflict := s.findConflictingIllustration(groupID, safeFilename)
-
-		if hasConflict && conflictPolicy == "skip" {
-			result.Skipped = append(result.Skipped, models.UploadConflictItem{Filename: safeFilename})
+		preparedResult := prepared[index]
+		if preparedResult.err != nil {
+			result.Failed = append(result.Failed, models.UploadConflictItem{
+				Filename: safeFilename,
+				Error:    preparedResult.err.Error(),
+			})
 			continue
 		}
 
-		item, err := s.processUpload(groupID, groupName, fh, autoTagEnabled)
+		item, outcome, err := s.commitPreparedUpload(groupID, groupName, preparedResult.upload, conflictPolicy)
+		preparedResult.upload.cleanup()
 		if err != nil {
 			result.Failed = append(result.Failed, models.UploadConflictItem{
 				Filename: safeFilename,
@@ -166,31 +171,18 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-
-		if hasConflict && conflictPolicy == "overwrite" {
-			deleted, _ := s.deleteIllustration(conflictID)
-			if deleted {
-				result.Overwritten = append(result.Overwritten, models.UploadConflictItem{Filename: safeFilename})
-				continue
-			}
+		switch outcome {
+		case uploadSkipped:
+			result.Skipped = append(result.Skipped, models.UploadConflictItem{Filename: safeFilename})
+			continue
+		case uploadOverwritten:
+			result.Overwritten = append(result.Overwritten, models.UploadConflictItem{Filename: safeFilename})
+			continue
 		}
 		result.Added = append(result.Added, *item)
 	}
 
 	writeJSON(w, 201, result)
-}
-
-func (s *Server) findConflictingIllustration(groupID int, originalFilename string) (int, bool) {
-	db := database.GetDB()
-	var id int
-	err := db.QueryRow(
-		"SELECT id FROM illustrations WHERE group_id = ? AND original_filename = ? LIMIT 1",
-		groupID, originalFilename,
-	).Scan(&id)
-	if err != nil {
-		return 0, false
-	}
-	return id, true
 }
 
 func (s *Server) deleteIllustration(illID int) (bool, error) {
@@ -226,7 +218,72 @@ func (s *Server) deleteIllustration(illID int) (bool, error) {
 	return true, nil
 }
 
-func (s *Server) processUpload(groupID int, groupName string, fh *multipart.FileHeader, autoTag bool) (*models.IllustrationResponse, error) {
+type preparedUpload struct {
+	safeFilename  string
+	stageDir      string
+	originalPath  string
+	thumbnailPath map[string]string
+	fileSize      int64
+	width         int
+	height        int
+	mimeType      string
+	tags          string
+	metadata      map[string]interface{}
+}
+
+func (p *preparedUpload) cleanup() {
+	if p != nil && p.stageDir != "" {
+		_ = os.RemoveAll(p.stageDir)
+	}
+}
+
+type preparedUploadResult struct {
+	upload *preparedUpload
+	err    error
+}
+
+type uploadOutcome uint8
+
+const (
+	uploadAdded uploadOutcome = iota
+	uploadSkipped
+	uploadOverwritten
+)
+
+func (s *Server) prepareUploads(
+	ctx context.Context,
+	groupID int,
+	files []*multipart.FileHeader,
+	autoTag bool,
+) []preparedUploadResult {
+	results := make([]preparedUploadResult, len(files))
+	jobs := make(chan int)
+	workerCount := min(len(files), s.UploadWorkers())
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				release, err := s.uploadLimiter.Acquire(ctx)
+				if err != nil {
+					results[index].err = fmt.Errorf("upload cancelled: %w", err)
+					continue
+				}
+				results[index].upload, results[index].err = s.prepareUpload(ctx, groupID, files[index], autoTag)
+				release()
+			}
+		}()
+	}
+	for index := range files {
+		jobs <- index
+	}
+	close(jobs)
+	wg.Wait()
+	return results
+}
+
+func (s *Server) prepareUpload(ctx context.Context, groupID int, fh *multipart.FileHeader, autoTag bool) (*preparedUpload, error) {
 	safeFilename := filepath.Base(fh.Filename)
 	if safeFilename == "" || safeFilename == "." || safeFilename == ".." {
 		return nil, fmt.Errorf("invalid filename")
@@ -241,43 +298,28 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 	}
 	defer file.Close()
 
-	db := database.GetDB()
-	tx, err := db.Begin()
+	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
+	stageDir, err := os.MkdirTemp(groupDir, ".upload-")
 	if err != nil {
-		return nil, fmt.Errorf("failed to start upload: %w", err)
+		return nil, fmt.Errorf("failed to stage %s: %w", safeFilename, err)
 	}
-	committed := false
-	createdFiles := make([]string, 0, len(thumbnail.QualityConfigs)+1)
+	prepared := &preparedUpload{
+		safeFilename:  safeFilename,
+		stageDir:      stageDir,
+		originalPath:  filepath.Join(stageDir, "original"),
+		thumbnailPath: make(map[string]string, len(thumbnail.QualityConfigs)),
+	}
+	ready := false
 	defer func() {
-		if committed {
-			return
-		}
-		_ = tx.Rollback()
-		for _, path := range createdFiles {
-			_ = os.Remove(path)
+		if !ready {
+			prepared.cleanup()
 		}
 	}()
 
-	result, err := tx.Exec(
-		"INSERT INTO illustrations (group_id, filename, original_filename) VALUES (?, '', ?)",
-		groupID, safeFilename,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save %s: %w", safeFilename, err)
-	}
-
-	illID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get illustration id: %w", err)
-	}
-	diskFilename := fmt.Sprintf("%d_%s", illID, safeFilename)
-	originalsDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), "originals")
-	originalPath := filepath.Join(originalsDir, diskFilename)
-	original, err := os.OpenFile(originalPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	original, err := os.OpenFile(prepared.originalPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create original %s: %w", safeFilename, err)
 	}
-	createdFiles = append(createdFiles, originalPath)
 	fileSize, copyErr := io.Copy(original, io.LimitReader(file, maxIllustrationFileBytes+1))
 	closeErr := original.Close()
 	if copyErr != nil {
@@ -290,7 +332,7 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 		return nil, fmt.Errorf("%s exceeds the 2 GiB upload limit", safeFilename)
 	}
 
-	stored, err := os.Open(originalPath)
+	stored, err := os.Open(prepared.originalPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reopen %s: %w", safeFilename, err)
 	}
@@ -299,6 +341,13 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 		stored.Close()
 		return nil, fmt.Errorf("%s exceeds the 100 megapixel image limit", safeFilename)
 	}
+	memoryWeight := estimatedUploadWorkingSet(config.Width, config.Height)
+	releaseMemory, err := s.uploadMemoryLimiter.Acquire(ctx, memoryWeight)
+	if err != nil {
+		stored.Close()
+		return nil, fmt.Errorf("upload cancelled: %w", err)
+	}
+	defer releaseMemory()
 	if _, err := stored.Seek(0, io.SeekStart); err != nil {
 		stored.Close()
 		return nil, fmt.Errorf("failed to read %s: %w", safeFilename, err)
@@ -317,20 +366,123 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 
 	for _, cfg := range thumbnail.QualityConfigs {
 		thumbImg := thumbnail.CreateThumbnail(img, cfg.MaxSize)
-		thumbDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), cfg.Dir)
-		thumbPath := filepath.Join(thumbDir, diskFilename)
-		createdFiles = append(createdFiles, thumbPath)
+		thumbPath := filepath.Join(stageDir, cfg.Dir)
 		if err := thumbnail.SaveJPEG(thumbImg, thumbPath, cfg.JPEGQuality); err != nil {
 			return nil, fmt.Errorf("failed to create thumbnail for %s", safeFilename)
 		}
+		prepared.thumbnailPath[cfg.Dir] = thumbPath
+	}
+
+	meta, err := metadata.Extract(prepared.originalPath, img)
+	if err != nil {
+		meta = nil
+	}
+
+	prepared.fileSize = fileSize
+	prepared.width = width
+	prepared.height = height
+	prepared.mimeType = mimeType
+	prepared.tags = tags
+	prepared.metadata = meta
+	ready = true
+	return prepared, nil
+}
+
+func estimatedUploadWorkingSet(width, height int) int64 {
+	const (
+		fixedWorkingSet = int64(16 << 20)
+		bytesPerPixel   = int64(8)
+	)
+	if width <= 0 || height <= 0 {
+		return fixedWorkingSet
+	}
+	estimate := fixedWorkingSet + int64(width)*int64(height)*bytesPerPixel
+	if estimate > uploadDecodeMemoryBudget {
+		return uploadDecodeMemoryBudget
+	}
+	return estimate
+}
+
+func (s *Server) commitPreparedUpload(
+	groupID int,
+	groupName string,
+	prepared *preparedUpload,
+	conflictPolicy string,
+) (*models.IllustrationResponse, uploadOutcome, error) {
+	s.uploadCommitMu.Lock()
+	defer s.uploadCommitMu.Unlock()
+
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, uploadAdded, fmt.Errorf("failed to start upload: %w", err)
+	}
+	committed := false
+	movedFiles := make([]string, 0, len(thumbnail.QualityConfigs)+1)
+	defer func() {
+		if committed {
+			return
+		}
+		_ = tx.Rollback()
+		for _, path := range movedFiles {
+			_ = os.Remove(path)
+		}
+	}()
+
+	var conflictID int
+	var conflictFilename string
+	hasConflict := false
+	if conflictPolicy != "save_all" {
+		err := tx.QueryRow(
+			"SELECT id, filename FROM illustrations WHERE group_id = ? AND original_filename = ? LIMIT 1",
+			groupID, prepared.safeFilename,
+		).Scan(&conflictID, &conflictFilename)
+		switch err {
+		case nil:
+			hasConflict = true
+		case sql.ErrNoRows:
+		default:
+			return nil, uploadAdded, fmt.Errorf("failed to check upload conflict for %s: %w", prepared.safeFilename, err)
+		}
+	}
+	if hasConflict && conflictPolicy == "skip" {
+		return nil, uploadSkipped, nil
+	}
+
+	result, err := tx.Exec(
+		"INSERT INTO illustrations (group_id, filename, original_filename) VALUES (?, '', ?)",
+		groupID, prepared.safeFilename,
+	)
+	if err != nil {
+		return nil, uploadAdded, fmt.Errorf("failed to save %s: %w", prepared.safeFilename, err)
+	}
+	illID, err := result.LastInsertId()
+	if err != nil {
+		return nil, uploadAdded, fmt.Errorf("failed to get illustration id: %w", err)
+	}
+	diskFilename := fmt.Sprintf("%d_%s", illID, prepared.safeFilename)
+	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
+	originalPath := filepath.Join(groupDir, "originals", diskFilename)
+	if err := os.Rename(prepared.originalPath, originalPath); err != nil {
+		return nil, uploadAdded, fmt.Errorf("failed to finalize original %s: %w", prepared.safeFilename, err)
+	}
+	movedFiles = append(movedFiles, originalPath)
+	for dir, stagedPath := range prepared.thumbnailPath {
+		finalPath := filepath.Join(groupDir, dir, diskFilename)
+		if err := os.Rename(stagedPath, finalPath); err != nil {
+			return nil, uploadAdded, fmt.Errorf("failed to finalize thumbnail for %s: %w", prepared.safeFilename, err)
+		}
+		movedFiles = append(movedFiles, finalPath)
 	}
 
 	var extendedData any
-	meta, err := metadata.Extract(originalPath, img)
-	if err == nil && len(meta) > 0 {
-		metaBytes, err := json.Marshal(meta)
+	if len(prepared.metadata) > 0 {
+		if fileInfo, ok := prepared.metadata["fileinfo"].(map[string]interface{}); ok {
+			fileInfo["filename"] = filepath.ToSlash(originalPath)
+		}
+		metaBytes, err := json.Marshal(prepared.metadata)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode metadata for %s: %w", safeFilename, err)
+			return nil, uploadAdded, fmt.Errorf("failed to encode metadata for %s: %w", prepared.safeFilename, err)
 		}
 		extendedData = string(metaBytes)
 	}
@@ -339,21 +491,38 @@ func (s *Server) processUpload(groupID int, groupName string, fh *multipart.File
 		UPDATE illustrations
 		SET filename = ?, file_size = ?, width = ?, height = ?, mime_type = ?, tags = ?, extended_data = ?
 		WHERE id = ?
-	`, diskFilename, fileSize, width, height, mimeType, tags, extendedData, illID); err != nil {
-		return nil, fmt.Errorf("failed to finalize %s: %w", safeFilename, err)
+	`, diskFilename, prepared.fileSize, prepared.width, prepared.height, prepared.mimeType, prepared.tags, extendedData, illID); err != nil {
+		return nil, uploadAdded, fmt.Errorf("failed to finalize %s: %w", prepared.safeFilename, err)
+	}
+
+	outcome := uploadAdded
+	if hasConflict && conflictPolicy == "overwrite" {
+		if _, err := tx.Exec("UPDATE groups SET cover_illustration_id = NULL WHERE cover_illustration_id = ?", conflictID); err != nil {
+			return nil, uploadAdded, err
+		}
+		if _, err := tx.Exec("DELETE FROM illustrations WHERE id = ?", conflictID); err != nil {
+			return nil, uploadAdded, err
+		}
+		outcome = uploadOverwritten
 	}
 
 	item := scanIllustration(tx.QueryRow(`
 		SELECT i.*, ? AS group_name FROM illustrations i WHERE i.id = ?
 	`, groupName, illID))
 	if item == nil {
-		return nil, fmt.Errorf("failed to build upload response for %s", safeFilename)
+		return nil, uploadAdded, fmt.Errorf("failed to build upload response for %s", prepared.safeFilename)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit %s: %w", safeFilename, err)
+		return nil, uploadAdded, fmt.Errorf("failed to commit %s: %w", prepared.safeFilename, err)
 	}
 	committed = true
-	return item, nil
+
+	if outcome == uploadOverwritten {
+		for _, sub := range []string{"originals", "thumbnails", "thumbnails_normal"} {
+			_ = os.Remove(filepath.Join(groupDir, sub, conflictFilename))
+		}
+	}
+	return item, outcome, nil
 }
 
 // ── Get Illustration ─────────────────────────────────────────────────────

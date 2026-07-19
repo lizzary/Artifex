@@ -19,8 +19,12 @@ const (
 	ThemeDark  ThemeMode = "dark"
 	ThemeLight ThemeMode = "light"
 
-	DefaultPortAttempts = settings.DefaultPortAttempts
-	MaxPortAttempts     = settings.MaxPortAttempts
+	DefaultPortAttempts  = settings.DefaultPortAttempts
+	MaxPortAttempts      = settings.MaxPortAttempts
+	DefaultUploadWorkers = settings.DefaultUploadWorkers
+	DefaultTaggerSlots   = settings.DefaultTaggerSlots
+	MaxUploadWorkers     = settings.MaxUploadWorkers
+	MaxTaggerSlots       = settings.MaxTaggerSlots
 )
 
 func ParseTheme(value string) (ThemeMode, error) {
@@ -82,6 +86,54 @@ func SavePortAttempts(path string, attempts int) error {
 		return err
 	}
 	cfg.CLI.PortAttempts = attempts
+	return settings.Save(path, cfg)
+}
+
+func ParseUploadWorkers(value string) (int, error) {
+	workers, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || workers < 1 || workers > MaxUploadWorkers {
+		return 0, fmt.Errorf("upload workers must be between 1 and %d", MaxUploadWorkers)
+	}
+	return workers, nil
+}
+
+func ParseTaggerSlots(value string) (int, error) {
+	slots, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || slots < 1 || slots > MaxTaggerSlots {
+		return 0, fmt.Errorf("tagger slots must be between 1 and %d", MaxTaggerSlots)
+	}
+	return slots, nil
+}
+
+func LoadConcurrency(path string) (int, int) {
+	cfg, err := settings.Load(path)
+	if err != nil {
+		return DefaultUploadWorkers, DefaultTaggerSlots
+	}
+	return cfg.UploadWorkers, cfg.TaggerSlots
+}
+
+func SaveUploadWorkers(path string, workers int) error {
+	if workers < 1 || workers > MaxUploadWorkers {
+		return fmt.Errorf("upload workers must be between 1 and %d", MaxUploadWorkers)
+	}
+	cfg, err := settings.Load(path)
+	if err != nil {
+		return err
+	}
+	cfg.UploadWorkers = workers
+	return settings.Save(path, cfg)
+}
+
+func SaveTaggerSlots(path string, slots int) error {
+	if slots < 1 || slots > MaxTaggerSlots {
+		return fmt.Errorf("tagger slots must be between 1 and %d", MaxTaggerSlots)
+	}
+	cfg, err := settings.Load(path)
+	if err != nil {
+		return err
+	}
+	cfg.TaggerSlots = slots
 	return settings.Save(path, cfg)
 }
 

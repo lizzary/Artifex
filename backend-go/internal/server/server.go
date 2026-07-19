@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"artifex-backend/internal/applog"
 	"artifex-backend/internal/models"
+	"artifex-backend/internal/settings"
+	"artifex-backend/internal/workerlimit"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -18,11 +21,12 @@ import (
 )
 
 type ServerConfig struct {
-	UploadsDir   string
-	ModelsDir    string
-	SettingsPath string
-	FrontendDir  string
-	Log          *applog.Hub
+	UploadsDir    string
+	ModelsDir     string
+	SettingsPath  string
+	FrontendDir   string
+	UploadWorkers int
+	Log           *applog.Hub
 }
 
 const multipartMemoryLimit int64 = 32 << 20
@@ -41,12 +45,29 @@ func multipartErrorStatus(err error) int {
 }
 
 type Server struct {
-	Router *chi.Mux
-	Config ServerConfig
+	Router              *chi.Mux
+	Config              ServerConfig
+	uploadLimiter       *workerlimit.Limiter
+	uploadMemoryLimiter *workerlimit.Weighted
+	uploadCommitMu      sync.Mutex
+	removeUploadDir     func(string) error
 }
 
+// Image decoding and Lanczos thumbnail generation need several times the
+// source pixel buffer. Keep that working set bounded independently from the
+// user-selected worker count so that 16/32 workers remain safe for large art.
+const uploadDecodeMemoryBudget int64 = 512 << 20
+
 func NewServer(cfg ServerConfig) *Server {
-	s := &Server{Config: cfg}
+	if cfg.UploadWorkers < 1 || cfg.UploadWorkers > settings.MaxUploadWorkers {
+		cfg.UploadWorkers = settings.DefaultUploadWorkers
+	}
+	s := &Server{
+		Config:              cfg,
+		uploadLimiter:       workerlimit.New(cfg.UploadWorkers),
+		uploadMemoryLimiter: workerlimit.NewWeighted(uploadDecodeMemoryBudget),
+		removeUploadDir:     os.RemoveAll,
+	}
 
 	// Create required directories
 	os.MkdirAll(s.UploadsDir(), 0755)
@@ -122,6 +143,17 @@ func (s *Server) UploadsDir() string   { return s.Config.UploadsDir }
 func (s *Server) ModelsDir() string    { return s.Config.ModelsDir }
 func (s *Server) SettingsPath() string { return s.Config.SettingsPath }
 func (s *Server) FrontendDir() string  { return s.Config.FrontendDir }
+
+func (s *Server) SetUploadWorkers(workers int) {
+	if workers < 1 || workers > settings.MaxUploadWorkers {
+		workers = settings.DefaultUploadWorkers
+	}
+	s.uploadLimiter.SetLimit(workers)
+}
+
+func (s *Server) UploadWorkers() int {
+	return s.uploadLimiter.Limit()
+}
 
 func (s *Server) logger() *applog.Hub {
 	if s.Config.Log != nil {

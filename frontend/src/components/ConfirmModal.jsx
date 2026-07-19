@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
 
 export default function ConfirmModal({
@@ -9,6 +10,8 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
   danger = false,
+  pending = false,
+  pendingText,
 }) {
   const { t } = useLocale();
   const confirm = confirmText ?? t('confirmModal.confirm');
@@ -22,7 +25,7 @@ export default function ConfirmModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="absolute inset-0 bg-overlay/70 backdrop-blur-sm"
-          onClick={onCancel}
+          onClick={pending ? undefined : onCancel}
         />
 
         {/* Card */}
@@ -39,19 +42,23 @@ export default function ConfirmModal({
           <div className="flex justify-end gap-3">
             <button
               onClick={onCancel}
-              className="px-5 py-2.5 rounded-xl text-sm font-medium bg-surface-tertiary hover:bg-edge-secondary text-content-secondary transition-all"
+              disabled={pending}
+              className="px-5 py-2.5 rounded-xl text-sm font-medium bg-surface-tertiary hover:bg-edge-secondary text-content-secondary transition-all disabled:cursor-not-allowed disabled:opacity-50"
             >
               {cancel}
             </button>
             <button
               onClick={onConfirm}
-              className={`px-5 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg transition-all hover:scale-[1.03] ${
+              disabled={pending}
+              aria-busy={pending}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg transition-all hover:scale-[1.03] disabled:cursor-wait disabled:opacity-70 disabled:hover:scale-100 ${
                 danger
                   ? 'bg-danger hover:bg-danger-hover shadow-danger/20 hover:shadow-danger/30'
                   : 'bg-accent hover:bg-accent-hover shadow-accent/20 hover:shadow-accent/30'
               }`}
             >
-              {confirm}
+              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {pending ? (pendingText ?? confirm) : confirm}
             </button>
           </div>
         </motion.div>

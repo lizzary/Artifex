@@ -71,15 +71,19 @@ export async function listAllIllustrations(groupId, batchSize = 5000) {
   return { items, total };
 }
 
-export function uploadSingleIllustration(groupId, file, skipAutoTag = false, conflictPolicy) {
+export function uploadIllustrations(groupId, files, skipAutoTag = false, conflictPolicy) {
   const formData = new FormData();
-  formData.append('files', file);
+  Array.from(files || []).forEach((file) => formData.append('files', file));
   formData.append('skip_auto_tag', skipAutoTag ? 'true' : 'false');
   if (conflictPolicy) formData.append('conflict_policy', conflictPolicy);
   return requestAndInvalidateSuggestions(
     `/api/groups/${groupId}/illustrations/upload`,
     { method: 'POST', body: formData },
   );
+}
+
+export function uploadSingleIllustration(groupId, file, skipAutoTag = false, conflictPolicy) {
+  return uploadIllustrations(groupId, [file], skipAutoTag, conflictPolicy);
 }
 
 export function retagIllustrations(ids) {

@@ -1,6 +1,7 @@
 package tagger
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"image"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"artifex-backend/internal/applog"
+	"artifex-backend/internal/workerlimit"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -53,8 +55,20 @@ var (
 	taggerTagNames   []string
 	taggerGeneralIdx []int
 	taggerCharIdx    []int
-	taggerMu         sync.Mutex
+	taggerMu         sync.RWMutex
+	taggerLimiter    = workerlimit.New(1)
 )
+
+// SetTaggerSlots changes the maximum number of concurrent ONNX Run calls.
+// Existing inference calls finish under the previous limit; new calls use the
+// updated limit immediately.
+func SetTaggerSlots(slots int) {
+	taggerLimiter.SetLimit(slots)
+}
+
+func TaggerSlots() int {
+	return taggerLimiter.Limit()
+}
 
 func clearTaggerCache() {
 	taggerMu.Lock()
@@ -146,7 +160,11 @@ func LoadTagger(modelsDir string) error {
 	}
 
 	// Configure ONNX Runtime session options
-	opts := ort.SessionOptions{}
+	opts, err := ort.NewSessionOptions()
+	if err != nil {
+		return fmt.Errorf("failed to create ONNX session options: %w", err)
+	}
+	defer opts.Destroy()
 	if gpu {
 		if err := opts.AppendExecutionProvider("CUDAExecutionProvider", nil); err != nil {
 			applog.Warn("tagger", "GPU (CUDA) unavailable; falling back to CPU: %v", err)
@@ -155,7 +173,7 @@ func LoadTagger(modelsDir string) error {
 
 	session, err := ort.NewDynamicAdvancedSession(onnxPath,
 		[]string{"input"}, []string{"output"},
-		&opts,
+		opts,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create ONNX session: %w", err)
@@ -174,17 +192,14 @@ func LoadTagger(modelsDir string) error {
 // Callers that overwrite existing data (e.g. re-tagging) should check this first
 // so we never replace good tags with an empty string when the model is missing.
 func IsTaggerReady() bool {
-	taggerMu.Lock()
-	defer taggerMu.Unlock()
+	taggerMu.RLock()
+	defer taggerMu.RUnlock()
 	return taggerSession != nil
 }
 
 // ExtractTags runs the ONNX tagger on an image and returns comma-separated tags.
 func ExtractTags(img image.Image) string {
-	taggerMu.Lock()
-	defer taggerMu.Unlock()
-
-	if taggerSession == nil {
+	if !IsTaggerReady() {
 		return ""
 	}
 
@@ -195,6 +210,21 @@ func ExtractTags(img image.Image) string {
 		return ""
 	}
 	defer inputTensor.Destroy()
+
+	release, err := taggerLimiter.Acquire(context.Background())
+	if err != nil {
+		return ""
+	}
+	defer release()
+
+	// The read lock keeps the session alive while allowing independent Run
+	// calls to execute concurrently. Model reload and deletion take the write
+	// lock and therefore wait for in-flight inference to finish.
+	taggerMu.RLock()
+	defer taggerMu.RUnlock()
+	if taggerSession == nil {
+		return ""
+	}
 
 	// Run inference
 	outputs := []ort.Value{nil} // nil = auto-allocate by ONNX Runtime

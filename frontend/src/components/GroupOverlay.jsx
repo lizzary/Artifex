@@ -18,7 +18,7 @@ import {
 import {
   checkModelStatus, deleteIllustrations,
   downloadModel, getSettings, listAllIllustrations, retagIllustrations,
-  updateGroup, updateIllustrationTags, uploadSingleIllustration,
+  updateGroup, updateIllustrationTags, uploadIllustrations,
 } from '../api';
 import { useToast } from './Toast';
 import ConfirmModal from './ConfirmModal';
@@ -34,6 +34,7 @@ import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig, { removeManualAssignmentsForIllustrations } from '../hooks/useGroupConfig';
 import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { groupIllustrations, paginateIllustrationGroups } from '../utils/grouping';
+import { createUploadBatches } from '../utils/uploadBatches';
 import { useLocale } from '../contexts/LocaleContext';
 
 // ── Main component ───────────────────────────────────────
@@ -57,6 +58,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [retagConfirm, setRetagConfirm] = useState(false);
   const [uploadSummary, setUploadSummary] = useState(null); // { added, skipped, overwritten, failed }
   const [conflictPolicy, setConflictPolicy] = useState('save_all');
+  const [uploadWorkers, setUploadWorkers] = useState(4);
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
   const [groupBy, setGroupBy] = useGroupBy();
@@ -131,6 +133,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
         setAutoTagEnabled(data.auto_tag ?? true);
         if (data.upload_conflict_policy === 'save_all' || data.upload_conflict_policy === 'skip' || data.upload_conflict_policy === 'overwrite') {
           setConflictPolicy(data.upload_conflict_policy);
+        }
+        if (Number.isInteger(data.upload_workers) && data.upload_workers > 0) {
+          setUploadWorkers(data.upload_workers);
         }
       })
       .catch(() => { /* keep default */ });
@@ -273,11 +278,24 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     clearSelection();
     const total = files.length;
     const summary = { added: [], skipped: [], overwritten: [], failed: [] };
-    for (let i = 0; i < total; i++) {
-      const file = files[i];
-      setUploadProgress({ current: i + 1, total, filename: file.name, stage: 'uploading' });
+    let concurrency = uploadWorkers;
+    try {
+      const latestSettings = await getSettings();
+      if (Number.isInteger(latestSettings.upload_workers) && latestSettings.upload_workers > 0) {
+        concurrency = latestSettings.upload_workers;
+        setUploadWorkers(concurrency);
+      }
+    } catch {
+      // The backend limiter still enforces the configured value if this refresh fails.
+    }
+
+    let completed = 0;
+    const batches = createUploadBatches(files, concurrency);
+    for (const batch of batches) {
+      const firstFile = batch[0];
+      setUploadProgress({ current: Math.min(completed + 1, total), total, filename: firstFile.name, stage: 'uploading' });
       try {
-        const result = await uploadSingleIllustration(group.id, file, skipAutoTag, conflictPolicy);
+        const result = await uploadIllustrations(group.id, batch, skipAutoTag, conflictPolicy);
         if (result) {
           if (result.added) summary.added.push(...result.added);
           if (result.skipped) summary.skipped.push(...result.skipped);
@@ -285,7 +303,12 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
           if (result.failed) summary.failed.push(...result.failed);
         }
       } catch (err) {
-        summary.failed.push({ filename: file.name, error: err.message || t('groupOverlay.upload.failed') });
+        batch.forEach((file) => {
+          summary.failed.push({ filename: file.name, error: err.message || t('groupOverlay.upload.failed') });
+        });
+      } finally {
+        completed += batch.length;
+        setUploadProgress({ current: completed, total, filename: firstFile.name, stage: 'uploading' });
       }
     }
     setUploadProgress(null);
@@ -305,7 +328,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     } else if (summary.added.length) {
       addToast(t('groupOverlay.toast.uploadAdded', { n: summary.added.length }), 'success');
     }
-  }, [addToast, clearSelection, conflictPolicy, fetchIllustrations, group.id, onGroupUpdated, t]);
+  }, [addToast, clearSelection, conflictPolicy, fetchIllustrations, group.id, onGroupUpdated, t, uploadWorkers]);
 
   const handleUploadFiles = useCallback(async (files) => {
     if (uploading || pendingFiles || files.length === 0) return;

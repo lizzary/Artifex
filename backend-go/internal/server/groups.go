@@ -205,9 +205,21 @@ func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = os.RemoveAll(filepath.Join(s.UploadsDir(), strconv.Itoa(groupID)))
-
 	w.WriteHeader(204)
+
+	// The database row is the source of truth and is already gone. Recursive
+	// filesystem cleanup can take noticeable time on Windows, so do it after
+	// responding instead of freezing the confirmation dialog.
+	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
+	removeUploadDir := s.removeUploadDir
+	if removeUploadDir == nil {
+		removeUploadDir = os.RemoveAll
+	}
+	go func() {
+		if err := removeUploadDir(groupDir); err != nil {
+			s.logger().Warn("groups", "could not remove deleted group directory %s: %v", groupDir, err)
+		}
+	}()
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

@@ -5,588 +5,476 @@
 [![Release](https://img.shields.io/github/v/release/lizzary/Artifex)](https://github.com/lizzary/Artifex/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
 
-一款用于管理 **ComfyUI** 生成图片的自托管图库。Artifex
-能读取每张 PNG 中嵌入的工作流元数据(模型、提示词、种子、
-采样器、LoRA 等),通过本地视觉模型自动打标签,并让你能在
-本地机器上搜索、分组、浏览成千上万张图片 —— 完全无需上云,
-也无任何遥测数据。
+**Artifex 是一个面向 ComfyUI 输出的本地优先、自托管工作空间。** 它可以从 PNG 文件中
+提取生成元数据，使用本地视觉模型为图片打标签，并为大型图片库提供图库、标签全文搜索、
+批量工具以及交互式颜色分组白板。
 
-![Artifex 主界面](access/main_page.png)
+数据库和图片始终保存在你的设备上。Artifex 不需要云端账户，也不收集遥测数据；只有在你
+主动下载发行版或可选的标签模型时才需要访问网络。
 
-## 为什么需要 Artifex
+> **截图占位符——颜色分组白板全景**
+>
+> 请截取一个完整白板视图：至少包含两个已有图片的彩色圆圈、**其他**区域、
+> “手动归组 → 首条命中规则 → 其他”的说明条、配置按钮和缩放控件。
+> 建议资源路径：`readme/access/whiteboard-overview.png`。
 
-用 ComfyUI 生成图片很容易,*管理输出*却不简单。工作几周之后,
-你会得到一个扁平的文件夹,里面塞满了 `ComfyUI_00042.png`、
-`ComfyUI_00043.png`……,而所有有价值的上下文(用的是哪个
-checkpoint?哪段提示词?哪套 LoRA 组合?)都只能通过把每张
-PNG 重新拖回 ComfyUI 才能找回。通用图片管理器无法解析
-ComfyUI 的元数据,而现有的 ComfyUI 扩展又难以应对几百张以上
-的规模。
+## Artifex 可以做什么
 
-Artifex 介于 ComfyUI 与文件系统之间:
+- **交互式颜色分组白板** —— 将一张或多张图片归入彩色圆圈，框选一个区域，在白板上
+  平移和缩放，并且无需离开画布即可管理选中的图片。
+- **手动优先的智能分组** —— 手动白板归组拥有最高优先级；可选的布尔规则随后对其余
+  图片进行分类；所有未匹配的图片都会进入**其他**区域。
+- **ComfyUI 元数据提取** —— 无需安装 ComfyUI，即可从 PNG 元数据中读取模型、提示词、
+  种子、采样器、调度器、步数、CFG、LoRA、分辨率、文件大小和创建时间。
+- **本地 AI 打标** —— 通过 ONNX Runtime 运行 WD EVA02-Large Tagger v3，默认使用 CPU
+  推理，也可选择 CUDA 加速。
+- **快速本地浏览** —— 基于 SQLite 的图库、标签前缀搜索、标签/提示词筛选、排序、分页、
+  三档图片质量和原始宽高比视图。
+- **完整的图片库工作流** —— 拖放上传、同名文件策略、可编辑标签、批量重新打标/下载/
+  删除、可配置的下载文件名，以及支持键盘操作和幻灯片播放的灯箱。
+- **本地、便携的存储** —— 除非你选择自定义路径，否则 SQLite、设置、模型、原图和
+  缩略图都存放在应用程序旁边。
 
-- **上传时解析 ComfyUI 工作流元数据** —— 模型、正向/负向
-  提示词、种子、采样器、调度器、步数、CFG、每个 LoRA 及其
-  强度、分辨率。PNG 的 `tEXt`/`iTXt` 块解析器为从头自研,
-  无需安装 ComfyUI 本体。
-- **本地视觉模型自动打标签** —— 通过 ONNX Runtime 调用
-  [WD EVA02-Large Tagger v3](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3);
-  优先使用 CUDA 执行提供程序,无 GPU 时自动回退到 CPU。
-- **基于标签和提示词的全文搜索** —— 由 SQLite FTS5 驱动,
-  支持前缀匹配:搜 "suns" 能找到 "sunset"、"sunshine"、
-  "sunlight"。
-- **互斥的智能分组** —— 在同一规则中组合标签与提示词,
-  支持 `AND`、`OR`、`NOT` 和括号;每张图片会被归入优先级最高的
-  命中规则,并渲染在带颜色的可折叠容器中。匹配优先级与
-  页面显示顺序可以分别配置。
+## 快速开始
 
-## 快速上手
+### 1. 下载发行版
 
-### 方式 A —— 下载发行版(Windows)
+打开 **[最新发行版](https://github.com/lizzary/Artifex/releases/latest)**，下载适用于你所用
+平台的压缩包：
 
-1. 从 **[Releases](https://github.com/lizzary/Artifex/releases)**
-   下载最新的 `Artifex_Win64.zip`。
-2. 解压到任意目录,运行 `Artifex.exe`。
-3. 打开 <http://127.0.0.1:8000>。
-4. *(可选,启用 AI 自动打标签)* 进入 **设置 → 模型管理 →
-   下载模型** —— 一次性从 HuggingFace 下载约 800 MB。
+| 平台 | 发行版压缩包 | 可执行文件 |
+| --- | --- | --- |
+| Windows x64 | `artifex-windows-amd64.zip` | `artifex.exe` |
+| Linux x64 | `artifex-linux-amd64.tar.gz` | `artifex` |
+| macOS Apple 芯片 | `artifex-darwin-arm64.tar.gz` | `artifex` |
 
-服务端首次启动会自动创建 `gallery.db`;上传的图片存放在
-二进制文件旁的 `uploads/` 目录下。
+目前尚未发布 Intel macOS 构建。
 
-### 方式 B —— 从源码构建
+### 2. 解压并双击启动
 
-参见 **[开发环境搭建](#开发环境搭建)**。需求一览:
+请保持可执行文件、ONNX Runtime 库和 `frontend/` 目录与压缩包中的结构一致，并将它们
+放在一起。
 
-- Go 1.26+
-- Node.js 20 LTS(用于构建前端)
-- GCC / MinGW-w64 —— *可选*,仅 ONNX 自动打标签功能需要;
-  也支持不带 GCC 的纯 Go 构建。
+打开解压后的目录，然后双击对应平台的可执行文件：
 
-## 技术栈
+- Windows：`artifex.exe`
+- Linux / macOS：`artifex`
 
-| 层级         | 技术与用途                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------------- |
-| 前端         | React,自研颜色分组渲染器,支持键盘操作和多选的灯箱组件                                                   |
-| 后端         | Go,[chi](https://github.com/go-chi/chi) 路由,单一静态二进制文件,内嵌前端资源                          |
-| 存储         | SQLite + FTS5 虚拟表,用于标签/提示词全文搜索                                                             |
-| 自动打标签   | ONNX Runtime(通过 CGO)+ WD EVA02-Large Tagger v3;支持 CUDA 执行提供程序,自动回退到 CPU                |
-| 元数据       | 自研 PNG `tEXt`/`iTXt` 块解析器;无需 ComfyUI 即可读取其序列化的工作流 JSON                              |
-| 缩略图       | 三档画质(400 px / 1200 px / 原图),首次请求时按需生成                                                  |
-| 打包         | 便携式 zip 分发;二进制 + DLL + 前端打包到一个目录中,无需安装程序                                       |
-| 国际化       | 内置英文与中文;运行时无需刷新即可切换                                                                    |
+Artifex 会在终端界面中显示图库的实际 URL。它从 `http://127.0.0.1:8000` 开始监听；
+如果该端口已被占用，则会依次尝试后续端口（默认尝试 30 次）。在终端界面中输入 `/open`
+即可在浏览器中打开图库。
 
-## 截图
+### 3. 可选：启用自动打标
 
-| 颜色分组(招牌功能)                            | 灯箱中的 ComfyUI 元数据                            |
-| ----------------------------------------------- | -------------------------------------------------- |
-| ![颜色分组](access/color_groups1.png)            | ![灯箱元数据](access/lightbox_metadata.png)         |
+发行版不附带默认模型。请在 Web 界面中打开**设置 → 图像索引 → 下载默认模型**。
+经过校验的模型约为 **1.2 GB**，并保存在本地的 `models/default/` 目录中。
 
-| 全局 FTS5 搜索                                   | 带自动补全的标签编辑器                          |
-| ------------------------------------------------ | ----------------------------------------------- |
-| ![搜索](access/search_overlay.png)               | ![标签编辑](access/lightbox_tag_edit.png)        |
+即使没有该模型，你仍然可以使用图库、元数据、手动标签、搜索、颜色规则和白板。如果上传时
+模型不可用，可以选择不进行自动打标并继续上传。
 
----
+## 颜色分组白板
 
-## 功能特性
+白板是单个图库的空间化视图。每个已配置的颜色组都是一个圆圈；没有有效分组的图片会保留在
+**其他**区域。
 
-### 互斥的颜色分组
+分组流程经过刻意设计，结果清晰可预测：
 
-Artifex 的招牌组织功能。每条规则都可以在同一表达式中组合
-**标签、正向提示词和负向提示词**。条件支持 `AND`、`OR`、`NOT`
-与嵌套括号,并按照常规优先级计算:先括号和 `NOT`,再 `AND`,
-最后 `OR`。
+```text
+手动白板归组  >  第一条命中的自动规则  >  其他
+```
 
-每个分组拥有独立的**匹配优先级**。优先级越高越先匹配,
-图片一旦命中就立即退出匹配流程,因此分组天然互斥;未命中
-任何规则的图片会落入 "Other"。匹配优先级与页面显示顺序
-彼此独立。
+拖动卡片改变的是其分组归属，而不是永久保存的自由坐标。Artifex 会计算确定性的布局，因此
+即使图片库发生变化，白板也能保持整洁。
 
-每个分组会被分配独立的默认颜色,也可以单独选择色板颜色或自定义颜色,
-并以可折叠容器的形式呈现,在视觉上将不同主题、角色或风格清晰区分开。
-每个分组还可以设置允许重复的自定义显示名称;名称留空时继续使用布尔表达式。
+### 白板操作
 
-- **混合来源补全** —— 每个条件的下拉菜单同时提示现有标签与
-  提示词,并标明来源
-- **按条件指定来源** —— 每个关键词可匹配标签、提示词或两者
-- **双重顺序** —— 拖动完整卡片调整页面顺序,拖动优先级小块
-  调整首命中顺序
+| 操作 | 结果 |
+| --- | --- |
+| 单击卡片 | 选中该卡片 |
+| `Ctrl` / `Cmd` + 单击 | 在选区中添加或移除一张卡片 |
+| `Shift` + 单击 | 选择一个范围 |
+| 在空白处按住左键拖动 | 绘制选择框 |
+| 将选中的卡片拖入圆圈 | 手动将所有选中图片归入该组 |
+| 将选中的卡片拖到所有圆圈之外 | 清除手动归组，让它们重新由自动规则处理 |
+| 按住右键拖动 | 平移白板 |
+| 鼠标滚轮或 `+` / `−` | 以指针为中心，在 50% 到 200% 之间缩放 |
+| 适应按钮 | 让所有颜色组适应当前视图 |
 
-你可以保存多套分组配置(分组集),并在它们之间切换;
-每一套都有自己独立的定义。
+> **截图占位符——白板框选与拖拽交互**
+>
+> 请截取正在框选图片或拖动多张卡片的状态，同时显示选中边框、可放置的颜色组目标和
+> 底部操作提示。建议资源路径：`readme/access/whiteboard-interactions.png`。
 
-![颜色分组示例](access/color_groups2.png)
-![分组配置](access/group_config_modal.png)
+**其他**网格每行可显示 5–30 张缩略图。将鼠标悬停在任意卡片上，会显示清晰、保持原始比例的
+预览，以及文件名和分组来源。
 
-### AI 驱动的自动打标签
+### 白板批量工具
 
-上传图片后,内置的
-[WD EVA02-Large Tagger v3](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3)
-(约 800 MB)会自动生成描述性标签。可用时使用 CUDA 加速;
-在不支持 GPU 的机器上,会自动回退到 CPU。
+选择工具栏可以下载或删除当前选区，还可以打开高级标签面板，该面板能够：
 
-可以在设置中开关自动打标签功能;如果你想用其他标签模型,
-也可以上传自定义模型。
+- 区分所有选中图片共有的标签与仅部分图片拥有的标签；
+- 为整个选区添加一个或多个标签；
+- 从所有选中图片中移除共有标签；
+- 准确显示哪些图片拥有部分标签，并可选择性地将其移除。
 
-![自动打标签设置](access/settings_auto_tag.png)
+白板打开时，也可以从操作系统将文件拖入图库；上传进度会持续显示在白板标题栏中。
 
-### 全局标签搜索(SQLite FTS5)
+> **截图占位符——白板批量标签工具**
+>
+> 请选择多张图片并打开可调整大小的**标签**面板，展示“全部拥有 / 部分拥有”的标签、
+> 添加标签入口，以及展开后的部分标签持有图片。建议资源路径：
+> `readme/access/whiteboard-batch-tags.png`。
 
-由 SQLite FTS5 驱动的全文搜索,在每个页面都可用。在搜索栏
-输入任意关键词,即可立即找到所有标签匹配的图片。前缀匹配
-意味着搜索词不完整也能工作:"suns" 会返回 "sunset"、
-"sunshine"、"sunlight"。
+### 手动归组与自动规则
 
-### ComfyUI 元数据提取
+自动规则并非必需。颜色组可以完全依靠手动归组，也可以通过以下来源的条件，将尚未归组的图片
+自动纳入其中：
 
-Artifex 会解析 ComfyUI 嵌入到每张生成 PNG 中的工作流元数据,
-并在灯箱的详情面板中展示以下字段(按 `Ctrl+D` 切换显示):
+- 完整标签，不区分大小写进行匹配；
+- 正向和负向提示词文本，以不区分大小写的子串方式进行匹配；
+- 同时使用上述两种来源。
 
-| 字段             | 示例                                  |
-| ---------------- | ------------------------------------- |
-| **模型**         | `dreamshaperXL_v21.safetensors`       |
-| **正向提示词**   | 正向提示词的完整文本                  |
-| **负向提示词**   | 负向提示词的完整文本                  |
-| **种子**         | `3478264912`                          |
-| **采样器**       | `DPM++ 2M Karras`                     |
-| **调度器**       | `Karras`                              |
-| **步数**         | `20`                                  |
-| **CFG 强度**     | `7.0`                                 |
-| **LoRA**         | 每个 LoRA 的名称及强度值              |
-| **分辨率**       | `1920 × 1080`                         |
-| **文件大小**     | `2.4 MB`                              |
-| **日期**         | 文件修改时间                          |
+规则支持 `AND`、`OR`、`NOT` 和嵌套括号。`AND` 的结合优先级高于 `OR`；括号和 `NOT`
+优先计算。自动规则按照独立的优先级顺序运行，并在第一条规则命中时停止。
 
-![灯箱元数据](access/lightbox_metadata.png)
+显示顺序与规则优先级相互独立：前者控制圆圈和页面中的位置，后者控制首条命中规则的求值顺序。
+颜色组还支持自定义名称、调色板颜色、精确的十六进制颜色，以及多套相互独立的配置。每套配置
+分别保存自己的分组、规则、优先级和手动归组结果。
 
-### 自定义标签编辑
+> **截图占位符——颜色分组配置**
+>
+> 请打开包含多个分组的配置对话框：其中一个分组仅手动归组，另一个使用嵌套布尔规则；
+> 同时展示颜色选择、显示顺序和规则优先级。建议资源路径：
+> `readme/access/color-group-config.png`。
 
-标签并非只读。在灯箱的详情面板中,点击铅笔图标进入编辑模式,
-然后即可添加或删除标签,并享受来自全库已有标签的自动补全
-建议。回车添加,保存生效。
+### DOM 与 WebGL 渲染器
 
-自定义标签会立即出现在全局搜索、标签浏览器和页面内筛选器中
-—— 它与所有依赖标签的功能无缝衔接。
+可在**设置 → 常规**中选择白板渲染器：
 
-![自定义标签编辑](access/lightbox_tag_edit.png)
+| 设置 | 适用场景 |
+| --- | --- |
+| **自动（推荐）** | 使用当前发行版所选的成熟兼容路径 |
+| **WebGL 高性能** | 使用带有视口裁剪和纹理延迟加载的 PixiJS/WebGL 2 渲染器，适合大型白板 |
+| **DOM 兼容** | 使用无障碍 HTML 渲染器，以获得最大程度的浏览器和 GPU 兼容性 |
 
-### 群组管理
+如果 WebGL 2 不可用或其上下文丢失，Artifex 会回退到 DOM 渲染器。WebGL 白板还支持使用
+方向键、`Home` / `End` 进行键盘导航，并可通过 `Enter` / `Space` 选择。
 
-将图片组织进**群组**(可以理解为相册或项目)。每个群组都可
-设置封面图片,并显示其内容的实时数量。可以创建、重命名或
-删除群组 —— 删除群组会级联删除其所有图片与文件。
+## 图库工作流
 
-![群组网格](access/home_groups.png)
+> **截图占位符——图库全景**
+>
+> 请截取一个包含多种图片的已打开图库，并完整展示顶栏搜索、排序、筛选、图片质量、
+> 卡片大小、原始比例、颜色分组、白板入口和上传控件。建议资源路径：
+> `readme/access/gallery-overview.png`。
 
-### 灯箱查看器
+### 图库与上传
 
-点击任意图片即可打开全屏灯箱。使用方向键导航,按 `Ctrl+D`
-切换详情面板,把当前图片设为群组封面,或直接删除。
+- 创建、重命名、删除顶层图库，并通过拖动调整顺序。
+- 从网格或灯箱中设置图库封面。
+- 通过文件选择器上传，或将文件拖入图库/白板。
+- 查看包含新增、跳过、覆盖和失败文件数量的最终汇总。
+- 选择同一图库中原始文件名重复时的处理方式：**全部保留**、**跳过**或**覆盖**。
+- 对选区重新运行 AI 标签器；重新打标会替换当前标签。
 
-### 多选与批量操作
+Artifex 支持 JPEG、PNG、GIF 和 WebP。原始文件会完整保留，不进行转码。上传时会生成
+400 px 缩略图（质量 75）和 1200 px 缩略图（质量 85）；缺失的缩略图会在需要时重建。
 
-使用熟悉的键盘快捷键选择图片:
+### 浏览、排序、筛选与选择
 
-- **单击** —— 在灯箱中查看
-- **Ctrl+点击** —— 切换单张选中状态
-- **Shift+点击** —— 在两点间区间选择
+- 按默认/最新顺序、分辨率面积、文件大小或创建时间排序，并可选择升序或降序。
+- 按完整标签、正向提示词、负向提示词或两者筛选当前图库或搜索结果。
+- 在低（400 px）、普通（1200 px）和原图质量之间切换。
+- 调整卡片大小，并选择方形裁切或完整的原始宽高比。
+- 每页可显示 50、100、200、500、1000 张或全部图片。
+- 将颜色分组应用到网格，并折叠单独的颜色区块。
+- 使用 `Ctrl` / `Cmd` 单击和 `Shift` 单击进行批量重新打标、下载或删除。
 
-选中后,可以一次性进行批量**下载**(支持自定义文件命名)
-或批量**删除**。
+> **截图占位符——分组图库与批量操作**
+>
+> 请截取已启用颜色分组的图库，至少展示两个彩色区块、一个折叠区块、多张已选图片，
+> 以及重新打标、下载和删除批量工具栏。建议资源路径：
+> `readme/access/gallery-grouping-and-batch.png`。
 
-![批量选择](access/batch_selection.png)
+### 搜索、标签与提示词
 
-### 标签与提示词浏览器
+标题栏搜索使用针对**标签**的 SQLite FTS5 索引。它执行前缀匹配，因此 `suns` 可以匹配
+`sunset`，多个词则使用 `AND` 组合。
 
-专用页面 (`/tags` 和 `/prompts`) 以可筛选的标签条形式列出
-图库中每一个唯一的标签和提示词。点击任意标签可查看持有该
-标签的图片数量,或输入文字快速缩小列表 —— 这是探索图库
-"词汇构成" 的便捷方式。
+## 灯箱、元数据与标签
 
-![标签浏览器](access/tags_page.png)
+单击图片可在全屏灯箱中打开原图。你可以在灯箱中浏览图片、设置图库封面、下载、删除、编辑标签、
+查看详情或开始播放幻灯片。
 
-### 自定义下载命名
+| 快捷键 | 操作 |
+| --- | --- |
+| `←` / `↑` | 上一张图片 |
+| `→` / `↓` | 下一张图片 |
+| `Ctrl` / `Cmd` + `D` | 切换详情面板 |
+| `Space` | 播放或暂停幻灯片 |
+| `Esc` | 关闭灯箱 |
 
-通过模板系统配置下载文件的命名方式。可以插入
-`<Model>`、`<Seed>`、`<Steps>`、`<Sampler>`、`<Resolution>`、
-`<Date>`、`<Group>` 等占位符 —— 它们会在下载时被替换为每张
-图片的实际值。
+幻灯片间隔可在 1–60 秒之间设置，并提供 2/3/5/10 秒预设。
 
-![下载命名](access/settings_download.png)
+对于 ComfyUI PNG，详情面板可以显示：
 
-### 其他贴心功能
+| 类别 | 提取的值 |
+| --- | --- |
+| 文件 | 图库、分辨率、文件大小、创建时间 |
+| 生成参数 | 模型、种子、采样器、调度器、步数、CFG 比例 |
+| 提示词 | 正向和负向提示词 |
+| 附加项 | LoRA 名称以及模型/CLIP 强度 |
+| 图片库 | 可编辑标签 |
 
-- **任意视图内排序 / 筛选 / 分页** —— 可按分辨率、文件大小或
-  日期排序;按标签或提示词筛选,并配备自动补全(可与颜色
-  分组组合使用);每页显示 50 / 100 / 200 / 500 / 1000 / 全部。
-- **多档画质缩略图** —— 400 px / 1200 px / 原图,通过画质
-  下拉菜单实时切换。对已存在但缺失某档缩略图的图片,在首次
-  请求时按需生成。
-- **顺序上传 + 实时进度** —— 实时显示文件名与百分比;失败
-  的文件会被记录,但不会阻塞批次中的其他文件。
-- **深色与浅色主题** —— 跨会话持久化,采用语义化色彩 token
-  保证可读性一致。
-- **国际化** —— 提供英文与中文;在设置中切换,无需刷新页面。
+Artifex 会从受支持的 PNG 文本元数据中读取内嵌的 ComfyUI `prompt` 和 `workflow` JSON。
+非 PNG 文件，以及不包含受支持工作流的 PNG，仍会保留其基本文件信息。
 
----
+> **截图占位符——ComfyUI 元数据详情**
+>
+> 请使用一张 ComfyUI PNG，确保详情面板同时显示模型、种子、正负提示词、采样器、调度器、
+> 步数、CFG 和至少一个 LoRA。建议资源路径：`readme/access/lightbox-metadata.png`。
 
-## 开发环境搭建
+## 本地 AI 打标
 
-> **目标读者:** 想从源码构建 Artifex,或修改后端 / 前端的
-> 开发者。终端用户请改用
-> **[快速上手 → 方式 A](#方式-a--下载发行版windows)**。
+默认标签器为
+[WD EVA02-Large Tagger v3](https://huggingface.co/lizzary111/wd-eva02-large-tagger-v3)，
+通过 ONNX Runtime 在本地运行。
 
-### 1. 克隆仓库
+- 默认仅使用 CPU 推理。
+- 可在设置中启用 CUDA；如果初始化失败，应用会回退到 CPU，并在应用日志中报告。
+- 默认下载固定到一个已知版本，并在替换活动模型前校验预期文件大小和 SHA-256 哈希值。
+- 可在设置中上传并选择自定义 `.onnx` 和 `.csv` 模型文件。
+- 可以完全禁用自动打标。
+
+> **截图占位符——模型管理与索引状态**
+>
+> 请截取**设置 → 图像索引**，展示活动模型选择器、默认模型下载/校验状态、CPU/CUDA 选项
+> 和自定义模型上传区域。建议资源路径：`readme/access/model-management.png`。
+
+官方发行版压缩包包含 ONNX Runtime，但**不包含**标签模型。
+
+
+
+```text
+artifex-directory/
+├── artifex[.exe]
+├── frontend/                 # 随发行版提供的 Web 应用；请与二进制文件放在一起
+├── onnxruntime.*             # 发行版附带的平台运行时库
+├── gallery.db                # SQLite 数据库
+├── settings.json             # 保存设置后创建
+├── models/
+│   ├── default/
+│   └── user_model/
+└── uploads/
+    └── <gallery-id>/
+        ├── originals/
+        ├── thumbnails/       # 400 px
+        └── thumbnails_normal/ # 1200 px
+```
+
+### 下载文件名模板
+
+下载会保留原始扩展名。模板区分大小写，并支持以下占位符：
+
+`<date>`、`<Resolution>`、`<File Size>`、`<Date Created>`、`<group>`、
+`<Model>`、`<Seed>`、`<Sampler>`、`<Steps>`、`<CFG Scale>` 和 `<Lora>`。
+
+非法文件名字符和未解析的占位符会被移除。如果结果为空，Artifex 会使用原始文件名。
+
+## 终端界面
+
+在终端中启动 Artifex 会打开 Bubble Tea 状态界面。若要在服务、脚本或容器中使用纯文本日志，
+请添加 `-no-ui`。
+
+| 命令 | 用途 |
+| --- | --- |
+| `/status` | 显示当前服务器状态 |
+| `/log` | 打开可滚动的应用日志 |
+| `/theme auto\|dark\|light` | 更改并保存终端主题 |
+| `/port-attempts 1-65536` | 设置下次启动时连续尝试端口的次数上限 |
+| `/upload-workers 1-32` | 设置图片预处理并行数；对后续新上传立即生效 |
+| `/tagger-slots 1-16` | 设置 tagger 推理并行槽位；对后续新推理立即生效 |
+| `/open` | 打开当前图库 URL |
+| `/home` | 返回状态页面 |
+| `/help` | 列出命令 |
+| `/quit` 或 `/exit` | 停止 Artifex |
+
+日志视图支持方向键、Page Up/Down、`End`、按 `f` 切换跟随模式，以及按 `1`–`4` 筛选
+日志级别。
+
+> **截图占位符——交互式终端界面**
+>
+> 建议制作并排截图：左侧为 Bubble Tea 首页/状态页，右侧为日志页；需要清晰展示实际图库 URL、
+> 运行状态、主题以及日志级别筛选。建议资源路径：`readme/access/terminal-ui.png`。
+
+## 从源代码构建
+
+### 环境要求
+
+| 依赖项 | 当前项目要求 |
+| --- | --- |
+| Go | 1.26.4（来自 `backend-go/go.mod`） |
+| Node.js | 20（发行工作流使用的版本） |
+| C 工具链 | 必需，因为后端使用 CGO |
+| ONNX Runtime | 1.26.0 共享库 |
+
+当前后端始终包含 ONNX 绑定，不存在禁用 CGO 或纯 Go 的后端构建。
+
+### 1. 克隆并构建前端
 
 ```bash
 git clone https://github.com/lizzary/Artifex.git
-cd Artifex
-```
-
-仓库结构:
-
-```
-Artifex/
-├── backend-go/           # Go 后端服务
-│   ├── main.go           # 入口
-│   ├── internal/
-│   │   ├── server/       # HTTP 处理器(chi 路由)
-│   │   ├── tagger/       # ONNX 自动打标签引擎
-│   │   ├── database/    # SQLite 初始化与辅助函数
-│   │   ├── metadata/     # ComfyUI PNG 元数据解析
-│   │   ├── thumbnail/    # 缩略图生成
-│   │   ├── settings/     # JSON 配置加载
-│   │   └── models/       # 共享数据结构
-│   ├── build.bat         # Windows 构建脚本 (CMD)
-│   ├── Makefile          # 构建脚本 (GNU Make)
-│   └── settings.json     # 默认配置
-├── frontend/             # React 前端
-│   ├── src/
-│   ├── public/
-│   └── build/            # 生产构建产物
-├── readme/               # README 资源(截图、中文翻译)
-└── README.md
-```
-
-### 2. 安装 Go
-
-**Windows:** 从 <https://go.dev/dl/> 下载安装包并运行,
-或将便携版压缩包解压到 `C:\Users\<username>\sdk\go1.26.4`,
-然后将其加入 `PATH`:
-
-```cmd
-setx PATH "%PATH%;C:\Users\<username>\sdk\go1.26.4\bin"
-```
-
-重启终端并验证:
-
-```cmd
-go version
-:: 预期: go version go1.26.4 windows/amd64
-```
-
-**Linux:**
-
-```bash
-wget https://go.dev/dl/go1.26.4.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.26.4.linux-amd64.tar.gz
-export PATH=$PATH:/usr/local/go/bin   # 加入 ~/.bashrc 以持久化
-go version
-```
-
-### 3. 安装 Node.js
-
-从 <https://nodejs.org/> 下载 LTS 安装包(推荐 v20 LTS)。
-验证:
-
-```bash
-node --version
-npm --version
-```
-
-安装前端依赖:
-
-```bash
-cd frontend
-npm install
-```
-
-### 4. 构建前端
-
-```bash
-cd frontend
+cd Artifex/frontend
+npm ci
 npm run build
 ```
 
-此命令会生成 `frontend/build/` —— 经过生产环境优化的静态
-文件。Go 后端会直接服务这些文件。
+这会创建 `frontend/build/`。在仓库目录结构中，后端会自动检测该目录。
 
-带热重载的开发模式:
+### 2. 安装 ONNX Runtime 1.26.0
+
+从 [ONNX Runtime v1.26.0 发行版](https://github.com/microsoft/onnxruntime/releases/tag/v1.26.0)
+下载与平台匹配的压缩包，并让可执行文件能够访问其共享库：
+
+- Windows：`onnxruntime.dll`
+- Linux：`libonnxruntime.so*`
+- macOS：`libonnxruntime*.dylib`
+
+Artifex 官方发行工作流会将这些文件放在可执行文件旁，并在 Linux/macOS 上添加相对于可执行文件的
+运行时搜索路径。
+
+### 3. 构建后端
+
+**Windows PowerShell：**
+
+```powershell
+cd ..\backend-go
+$env:CGO_ENABLED='1'
+go build -trimpath -ldflags="-s -w" -o artifex.exe .
+```
+
+**Linux / macOS：**
 
 ```bash
+cd ../backend-go
+CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o artifex .
+```
+
+构建完成后，在文件管理器中打开 `backend-go` 目录：Windows 双击 `artifex.exe`，
+Linux / macOS 双击 `artifex`。
+
+若要使用前端热重载，请保持后端运行，并在一个从仓库根目录启动的新终端中，使用后端的实际
+URL 启动 React：
+
+```powershell
+cd frontend
+$env:REACT_APP_API_BASE_URL='http://127.0.0.1:8000'
 npm start
-# 在 http://localhost:3000 启动 React 开发服务器
-# 如果后端使用不同来源，请将 REACT_APP_API_BASE_URL 设为后端地址
 ```
-
-打包版使用同源 API 和图片地址，因此会自动跟随后端实际选择的端口。单独运行
-React 与 Go 开发服务器时，请使用 CLI 显示的后端地址启动 React，例如在
-PowerShell 中执行
-`$env:REACT_APP_API_BASE_URL='http://localhost:8001'; npm start`。
-
----
-
-> **第 5–7 步仅在需要 AI 自动打标签时才必要。**
-> 如果只用核心功能(上传、浏览、搜索、手动标签、元数据、
-> 颜色分组),可直接跳到
-> **[第 8 步 → 不带 ONNX 的构建](#不带-onnx-的构建纯-go无自动打标签)**。
-
-### 5. 安装 GCC(Windows 上使用 MinGW-w64)
-
-ONNX Runtime 的 Go 绑定需要 **CGO**,而 CGO 需要 C 编译器。
-
-**Windows —— winlibs(便捷的独立版本):**
-
-1. 访问 <https://github.com/brechtsanders/winlibs_mingw/releases>
-2. 下载最新的 **Win64 Zip**(不带 LLVM/Clang 的版本),例如
-   `winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64-13.0.0-r1.zip`
-3. 解压到 `C:\mingw64`
-4. 将 `C:\mingw64\bin` 加入系统 `PATH`:
-
-```cmd
-setx PATH "%PATH%;C:\mingw64\bin"
-```
-
-重启终端并验证:
-
-```cmd
-gcc --version
-:: 预期: gcc (MinGW-W64 ...) 15.2.0 (或类似版本)
-```
-
-**Linux:**
 
 ```bash
-sudo apt install build-essential   # Debian/Ubuntu —— 包含 GCC
+cd frontend
+REACT_APP_API_BASE_URL=http://127.0.0.1:8000 npm start
 ```
 
-### 6. 安装 ONNX Runtime 共享库
+React 开发服务器默认监听 `http://localhost:3000`。
 
-ONNX Runtime 的共享库不仅在构建时需要,**运行时也必须**
-能被操作系统的动态链接器找到。
-
-**Windows:**
-
-1. 访问 <https://github.com/microsoft/onnxruntime/releases>
-2. 下载与 Go 绑定版本匹配的发行版(推荐 v1.21.x):
-   `onnxruntime-win-x64-<version>.zip`
-3. 解压后,将 `onnxruntime.dll`(以及可选的
-   `onnxruntime_providers_shared.dll` /
-   `onnxruntime_providers_cuda.dll`,用于 GPU)复制到
-   `artifex-server.exe` **所在的同一目录**:
-
-```
-backend-go/
-├── artifex-server.exe
-├── onnxruntime.dll                    <-- 必需
-├── onnxruntime_providers_shared.dll   <-- 可选(GPU)
-└── ...
-```
-
-> Windows 上可执行文件所在目录会自动被加入 DLL 搜索路径,
-> 因此把 `onnxruntime.dll` 放在 `.exe` 旁边即可。
-
-**Linux:**
+### 测试
 
 ```bash
-wget https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz
-tar -xzf onnxruntime-linux-x64-1.21.0.tgz
-sudo cp onnxruntime-linux-x64-1.21.0/lib/libonnxruntime.so* /usr/local/lib/
-sudo ldconfig
+cd frontend
+CI=true npm test -- --watchAll=false
+
+cd ../backend-go
+CGO_ENABLED=1 go test ./...
 ```
 
-### 7. 下载标签模型
+### 运行参数
 
-标签模型 (`wd-eva02-large-tagger-v3`,约 800 MB) 有两种
-获取方式:
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-host` | `127.0.0.1` | 监听地址 |
+| `-port` | `8000` | 首个尝试的端口 |
+| `-db` | `<base>/gallery.db` | SQLite 数据库路径 |
+| `-uploads` | `<base>/uploads` | 原图和缩略图存储路径 |
+| `-models` | `<base>/models` | 默认和自定义模型存储路径 |
+| `-frontend` | 自动检测 | 构建后的前端目录 |
+| `-cli-theme` | 已保存的设置 | `auto`、`dark` 或 `light` 终端主题 |
+| `-no-ui` | `false` | 禁用交互式终端界面 |
 
-**A) 从设置页面获取(推荐):**
+服务器默认仅监听回环地址。如果将 `-host` 设置为 `0.0.0.0`，Artifex 将可从你的网络访问，
+并且不会添加身份验证；请仅在可信网络中，或在你自己的访问控制之后这样做。
 
-服务器启动后,打开 <http://127.0.0.1:8000>,进入
-**设置 → 模型管理**,点击 **下载模型**。服务器会自动从
-HuggingFace 拉取 ONNX 模型与标签 CSV。
+## 架构
 
-**B) 手动下载:**
+| 层 | 实现 |
+| --- | --- |
+| 前端 | React 19、React Router 7、Tailwind CSS 3、Framer Motion、Lucide |
+| 白板 | DOM 兼容渲染器，以及 PixiJS 8 / WebGL 2 渲染器 |
+| 后端 | Go 1.26、Chi 路由、Bubble Tea/Lipgloss 终端界面 |
+| 存储 | WAL 模式的 SQLite，使用 FTS5 进行标签搜索 |
+| 元数据 | 原生 Go PNG 数据块与 ComfyUI 工作流解析器 |
+| 图片处理 | 原始文件，以及 400 px 和 1200 px JPEG 缩略图 |
+| 标签器 | `onnxruntime_go`、ONNX Runtime 1.26.0、WD EVA02-Large Tagger v3 |
+| 打包 | 可执行文件 + 外部 `frontend/` + 平台 ONNX Runtime 库 |
 
-```bash
-cd backend-go
-mkdir -p models/default
-
-curl -L -o models/default/wd-eva02-large-tagger-v3.onnx \
-  https://huggingface.co/lizzary111/wd-eva02-large-tagger-v3/resolve/main/wd-eva02-large-tagger-v3.onnx
-
-curl -L -o models/default/wd-eva02-large-tagger-v3.onnx.data \
-  https://huggingface.co/lizzary111/wd-eva02-large-tagger-v3/resolve/main/wd-eva02-large-tagger-v3.onnx.data
-
-curl -L -o models/default/tags.csv \
-  https://huggingface.co/lizzary111/wd-eva02-large-tagger-v3/resolve/main/tags.csv
-```
-
-预期的文件:
-
-```
-backend-go/models/default/
-├── wd-eva02-large-tagger-v3.onnx       (约 800 MB)
-├── wd-eva02-large-tagger-v3.onnx.data  (外部权重)
-└── tags.csv                            (标签标注)
-```
-
-### 8. 构建后端
-
-两种构建模式 —— 任选其一。
-
-#### 带 ONNX 自动打标签的构建
-
-**前置条件:** 已完成第 5–7 步(GCC + `onnxruntime.dll` + 模型)。
-
-```cmd
-cd backend-go
-
-:: Windows CMD / PowerShell:
-build.bat build
-
-:: 或用 Make:
-make build
-```
-
-此命令会生成 `artifex-server.exe`,带有完整的 ONNX 自动
-打标签流水线。
-
-### 9. 运行服务器
-
-```cmd
-cd backend-go
-
-:: 启动服务器:
-artifex-server.exe
-
-:: 或指定自定义 host / port:
-artifex-server.exe -host 0.0.0.0 -port 8080
-
-:: 或通过构建脚本(开发模式):
-build.bat run
-```
-
-**命令行参数:**
-
-| 参数        | 默认值                 | 说明                                    |
-| ----------- | ---------------------- | --------------------------------------- |
-| `-host`     | `127.0.0.1`            | 监听地址(局域网访问请用 `0.0.0.0`)      |
-| `-port`     | `8000`                 | 首个尝试监听的端口                      |
-| `-db`       | `<basedir>/gallery.db` | SQLite 数据库路径                       |
-| `-uploads`  | `<basedir>/uploads`    | 图片存储目录                            |
-| `-models`   | `<basedir>/models`     | ONNX 模型目录                           |
-| `-frontend` | 自动检测               | 前端构建目录                            |
-
-在浏览器中打开 **<http://127.0.0.1:8000>**。
-
-首次启动时:
-
-1. 服务器会自动创建 `gallery.db` (SQLite)。
-2. 若 `settings.json` 启用了自动打标签,会尝试加载 ONNX 模型。
-3. 若模型缺失,服务器会输出一条日志,然后在不带自动打标签的
-   情况下继续运行。
-4. 进入 **设置 → 模型管理** 即可下载模型。
-
-### 10. 分发打包
-
-打包成独立、可分发的版本:
-
-```cmd
-cd backend-go
-
-:: 仅后端 + 配置:
-build.bat dist
-
-:: 后端 + 配置 + 前端:
-build.bat dist-full
-```
-
-产物结构:
-
-```
-dist/Artifex/
-├── Artifex.exe              # 服务器二进制
-├── settings.json            # 默认配置
-├── models/
-│   ├── default/             # ONNX 模型(需单独下载)
-│   └── user_model/          # 用户自定义模型
-├── uploads/                 # 图片存储
-└── _internal/
-    └── frontend/            # React 构建产物(仅 dist-full)
-```
-
-将 `dist/Artifex/` 目录复制到任意 Windows 机器上,运行
-`Artifex.exe` 即可。
-
----
-
-## 故障排查
-
-**"Tagger not available: failed to initialize ONNX Runtime"**
-
-运行时找不到 `onnxruntime.dll`。请检查:
-
-1. DLL 是否位于 `artifex-server.exe` **所在的同一目录**。
-2. 如果 DLL 在 `PATH` 上的其他位置,用 `where onnxruntime.dll`
-   确认。
-3. DLL 架构(x64)需与 Go 构建匹配 (`GOARCH=amd64`)。
-
-**"Tagger not available: default model not found"**
-
-ONNX 模型文件缺失。两种解决方式:
-
-- 在网页 UI 中打开 **设置 → 模型管理 → 下载模型**,或
-- 按 **[第 7 步](#7-下载标签模型)** 所述手动下载。
-
-**"gcc: executable file not found in %PATH%"**
-
-GCC / MinGW 未安装或不在 `PATH` 中。请按
-**[第 5 步](#5-安装-gccwindows-上使用-mingw-w64)** 操作,
-然后重启终端。可用 `gcc --version` 验证。
-
-**自动打标签输出为空或不准确**
-
-1. 检查 `models/default/` 目录下三个模型文件是否齐全。
-2. 检查服务器控制台 —— 应当能看到 `Tagger ready (<N> tags).`。
-3. 若 `settings.json → gpu_enabled` 为 `true`,可尝试关闭;
-   有可能本机不支持 CUDA 执行提供程序。
-
-**前端显示空白页或 404**
-
-服务器找不到前端构建产物。两种解决方式:
-
-- 构建前端: `cd frontend && npm run build`,或
-- 显式指定构建目录:
-  `artifex-server.exe -frontend ../frontend/build`。
-
-服务器会自动检测 `_internal/frontend/`(打包后的产物优先),
-然后是 `../frontend/build`(开发态结构)。
-
-**8000 端口被占用**
-
-Artifex 默认会自动递增端口，最多连续尝试 30 个端口。可通过
-Bubble Tea 终端中的命令修改最大尝试次数：
+仓库目录结构：
 
 ```text
-/port-attempts 10
+Artifex/
+├── backend-go/
+│   ├── main.go
+│   └── internal/
+│       ├── cli/
+│       ├── database/
+│       ├── metadata/
+│       ├── server/
+│       ├── settings/
+│       ├── tagger/
+│       └── thumbnail/
+├── frontend/
+│   ├── public/
+│   └── src/
+│       ├── components/
+│       │   └── color-board/
+│       ├── hooks/
+│       ├── pages/
+│       └── utils/
+├── readme/access/          # README 截图
+└── .github/workflows/release.yml
 ```
 
-该设置会保存到 `settings.json` 的 `cli` 配置段，重启 Artifex 后生效。不再支持
-`-port-attempts` 进程启动参数。
+## 故障排除
 
----
+### 前端空白或返回 404
+
+请保持发行版压缩包的结构完整，确保 `frontend/index.html` 位于可执行文件旁；也可以从源代码构建
+`frontend/build/`。可通过 `-frontend` 指定自定义目录。
+
+### ONNX Runtime 初始化失败
+
+请确保发行版附带的平台共享库仍位于可执行文件旁。从源代码构建时，必须使用项目所需的 ONNX
+Runtime 版本（目前为 1.26.0）以及匹配的架构。
+
+### 默认模型不可用
+
+打开**设置 → 图像索引 → 下载默认模型**。下载失败或不完整的模型不会被激活；Artifex 会在替换
+当前模型前校验文件。你也可以不进行自动打标并继续上传。
+
+### CUDA 无法启动
+
+官方压缩包包含 CPU 运行时。CUDA 需要兼容的执行提供程序库和驱动程序。Artifex 会记录初始化
+失败并回退到 CPU；如果你不打算安装这些组件，请禁用 GPU 加速。
+
+### WebGL 模式无法启动
+
+使用**设置 → 常规 → 白板渲染器 → DOM 兼容**。当 WebGL 2 不可用时，Artifex 也会自动回退。
+
+### 端口 8000 已被占用
+
+请查看终端中显示的实际 URL。Artifex 通常会尝试端口 8000–8029。使用 `/port-attempts`
+更改下次启动的尝试次数上限，或通过 `-port` 设置不同的起始端口。
 
 ## 许可证
 
-[MIT](../LICENSE) —— 详见 LICENSE 文件。
+[MIT](../LICENSE) © 2026 Perry Wong。

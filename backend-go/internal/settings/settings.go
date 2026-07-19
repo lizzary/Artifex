@@ -11,9 +11,13 @@ import (
 type GroupConfigs map[string]map[string]json.RawMessage
 
 const (
-	DefaultCLITheme     = "auto"
-	DefaultPortAttempts = 30
-	MaxPortAttempts     = 65536
+	DefaultCLITheme      = "auto"
+	DefaultPortAttempts  = 30
+	DefaultUploadWorkers = 4
+	DefaultTaggerSlots   = 1
+	MaxPortAttempts      = 65536
+	MaxUploadWorkers     = 32
+	MaxTaggerSlots       = 16
 )
 
 type CLISettings struct {
@@ -26,6 +30,8 @@ type Settings struct {
 	GPUEnabled           bool         `json:"gpu_enabled"`
 	ActiveModel          string       `json:"active_model,omitempty"`
 	UploadConflictPolicy string       `json:"upload_conflict_policy"`
+	UploadWorkers        int          `json:"upload_workers"`
+	TaggerSlots          int          `json:"tagger_slots"`
 	GroupOrder           []int        `json:"group_order"`
 	GroupConfigs         GroupConfigs `json:"group_configs"`
 	CLI                  CLISettings  `json:"cli"`
@@ -36,6 +42,8 @@ func Load(path string) (*Settings, error) {
 		AutoTag:              true,
 		GPUEnabled:           false,
 		UploadConflictPolicy: "save_all",
+		UploadWorkers:        DefaultUploadWorkers,
+		TaggerSlots:          DefaultTaggerSlots,
 		GroupOrder:           []int{},
 		GroupConfigs:         GroupConfigs{},
 		CLI: CLISettings{
@@ -58,6 +66,12 @@ func Load(path string) (*Settings, error) {
 
 	if s.UploadConflictPolicy != "save_all" && s.UploadConflictPolicy != "skip" && s.UploadConflictPolicy != "overwrite" {
 		s.UploadConflictPolicy = "save_all"
+	}
+	if s.UploadWorkers < 1 || s.UploadWorkers > MaxUploadWorkers {
+		s.UploadWorkers = DefaultUploadWorkers
+	}
+	if s.TaggerSlots < 1 || s.TaggerSlots > MaxTaggerSlots {
+		s.TaggerSlots = DefaultTaggerSlots
 	}
 	if s.GroupOrder == nil {
 		s.GroupOrder = []int{}

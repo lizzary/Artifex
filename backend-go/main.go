@@ -46,11 +46,14 @@ type options struct {
 }
 
 type appRuntime struct {
-	mu         sync.Mutex
-	httpServer *http.Server
-	done       chan error
-	opts       options
-	log        *applog.Hub
+	mu            sync.Mutex
+	httpServer    *http.Server
+	apiServer     *server.Server
+	done          chan error
+	opts          options
+	log           *applog.Hub
+	uploadWorkers int
+	taggerSlots   int
 }
 
 func main() {
@@ -73,6 +76,7 @@ func run() error {
 	stdlog.SetOutput(hub.Writer("app", applog.LevelWarn))
 
 	opts.portAttempts = cli.LoadPortAttempts(opts.settingsPath)
+	uploadWorkers, taggerSlots := cli.LoadConcurrency(opts.settingsPath)
 
 	mode := cli.LoadTheme(opts.settingsPath)
 	if opts.cliTheme != "" {
@@ -84,20 +88,25 @@ func run() error {
 	}
 
 	rt := &appRuntime{
-		done: make(chan error, 1),
-		opts: opts,
-		log:  hub,
+		done:          make(chan error, 1),
+		opts:          opts,
+		log:           hub,
+		uploadWorkers: uploadWorkers,
+		taggerSlots:   taggerSlots,
 	}
 
 	if interactive {
 		err := cli.Run(cli.Config{
-			Version:      version,
-			Theme:        mode,
-			ConfigPath:   opts.settingsPath,
-			PortAttempts: opts.portAttempts,
-			Log:          hub,
-			Bootstrap:    rt.bootstrap,
-			OpenURL:      openBrowser,
+			Version:          version,
+			Theme:            mode,
+			ConfigPath:       opts.settingsPath,
+			PortAttempts:     opts.portAttempts,
+			UploadWorkers:    uploadWorkers,
+			TaggerSlots:      taggerSlots,
+			Log:              hub,
+			Bootstrap:        rt.bootstrap,
+			OpenURL:          openBrowser,
+			ApplyConcurrency: rt.applyConcurrency,
 		})
 		shutdownErr := rt.shutdown()
 		if err != nil {
@@ -200,7 +209,12 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	if err != nil {
 		rt.log.Warn("settings", "could not load settings: %v", err)
 	}
+	rt.mu.Lock()
+	configuredUploadWorkers := rt.uploadWorkers
+	configuredTaggerSlots := rt.taggerSlots
+	rt.mu.Unlock()
 	tagger.SetUseGPU(st.GPUEnabled)
+	tagger.SetTaggerSlots(configuredTaggerSlots)
 	if st.ActiveModel != "" {
 		tagger.SetActiveModel(st.ActiveModel)
 	}
@@ -225,11 +239,12 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}
 
 	srv := server.NewServer(server.ServerConfig{
-		UploadsDir:   rt.opts.uploadsDir,
-		ModelsDir:    rt.opts.modelsDir,
-		SettingsPath: rt.opts.settingsPath,
-		FrontendDir:  rt.opts.frontendDir,
-		Log:          rt.log,
+		UploadsDir:    rt.opts.uploadsDir,
+		ModelsDir:     rt.opts.modelsDir,
+		SettingsPath:  rt.opts.settingsPath,
+		FrontendDir:   rt.opts.frontendDir,
+		UploadWorkers: configuredUploadWorkers,
+		Log:           rt.log,
 	})
 
 	listener, selectedPort, attempts, err := listenOnAvailablePort(
@@ -262,7 +277,12 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}
 	rt.mu.Lock()
 	rt.httpServer = httpServer
+	rt.apiServer = srv
+	configuredUploadWorkers = rt.uploadWorkers
+	configuredTaggerSlots = rt.taggerSlots
+	srv.SetUploadWorkers(configuredUploadWorkers)
 	rt.mu.Unlock()
+	tagger.SetTaggerSlots(configuredTaggerSlots)
 
 	actualPort := rt.opts.port
 	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
@@ -289,6 +309,19 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 	}()
 
 	return result
+}
+
+func (rt *appRuntime) applyConcurrency(uploadWorkers, taggerSlots int) {
+	rt.mu.Lock()
+	rt.uploadWorkers = uploadWorkers
+	rt.taggerSlots = taggerSlots
+	srv := rt.apiServer
+	rt.mu.Unlock()
+	tagger.SetTaggerSlots(taggerSlots)
+	if srv != nil {
+		srv.SetUploadWorkers(uploadWorkers)
+	}
+	rt.log.Info("settings", "concurrency updated: upload_workers=%d tagger_slots=%d", uploadWorkers, taggerSlots)
 }
 
 type listenFunc func(network, address string) (net.Listener, error)

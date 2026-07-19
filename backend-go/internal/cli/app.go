@@ -26,13 +26,16 @@ type BootResult struct {
 }
 
 type Config struct {
-	Version      string
-	Theme        ThemeMode
-	ConfigPath   string
-	PortAttempts int
-	Log          *applog.Hub
-	Bootstrap    func() BootResult
-	OpenURL      func(string) error
+	Version          string
+	Theme            ThemeMode
+	ConfigPath       string
+	PortAttempts     int
+	UploadWorkers    int
+	TaggerSlots      int
+	Log              *applog.Hub
+	Bootstrap        func() BootResult
+	OpenURL          func(string) error
+	ApplyConcurrency func(uploadWorkers, taggerSlots int)
 }
 
 type screen uint8
@@ -46,23 +49,25 @@ type tickMsg time.Time
 type openResultMsg struct{ err error }
 
 type model struct {
-	cfg          Config
-	palette      palette
-	detectedDark bool
-	mode         ThemeMode
-	screen       screen
-	width        int
-	height       int
-	input        string
-	notice       string
-	booting      bool
-	result       BootResult
-	spinner      int
-	logOffset    int
-	followLogs   bool
-	levelFilter  int
-	lastLogCount int
-	portAttempts int
+	cfg           Config
+	palette       palette
+	detectedDark  bool
+	mode          ThemeMode
+	screen        screen
+	width         int
+	height        int
+	input         string
+	notice        string
+	booting       bool
+	result        BootResult
+	spinner       int
+	logOffset     int
+	followLogs    bool
+	levelFilter   int
+	lastLogCount  int
+	portAttempts  int
+	uploadWorkers int
+	taggerSlots   int
 }
 
 func Run(cfg Config) error {
@@ -78,18 +83,26 @@ func Run(cfg Config) error {
 	if cfg.PortAttempts < 1 || cfg.PortAttempts > MaxPortAttempts {
 		cfg.PortAttempts = DefaultPortAttempts
 	}
+	if cfg.UploadWorkers < 1 || cfg.UploadWorkers > MaxUploadWorkers {
+		cfg.UploadWorkers = DefaultUploadWorkers
+	}
+	if cfg.TaggerSlots < 1 || cfg.TaggerSlots > MaxTaggerSlots {
+		cfg.TaggerSlots = DefaultTaggerSlots
+	}
 
 	dark := DetectDark(cfg.Theme)
 	m := &model{
-		cfg:          cfg,
-		palette:      newPalette(dark),
-		detectedDark: dark,
-		mode:         cfg.Theme,
-		width:        80,
-		height:       24,
-		booting:      true,
-		followLogs:   true,
-		portAttempts: cfg.PortAttempts,
+		cfg:           cfg,
+		palette:       newPalette(dark),
+		detectedDark:  dark,
+		mode:          cfg.Theme,
+		width:         80,
+		height:        24,
+		booting:       true,
+		followLogs:    true,
+		portAttempts:  cfg.PortAttempts,
+		uploadWorkers: cfg.UploadWorkers,
+		taggerSlots:   cfg.TaggerSlots,
 	}
 	_, err := tea.NewProgram(m).Run()
 	return err
@@ -231,7 +244,7 @@ func (m *model) execute(command string) (tea.Model, tea.Cmd) {
 		m.screen = homeScreen
 		return m, tea.ClearScreen
 	case "/help":
-		m.notice = "/log  /status  /theme auto|dark|light  /port-attempts 1-65536  /open  /home  /quit"
+		m.notice = "/log  /status  /theme auto|dark|light  /port-attempts N  /upload-workers N  /tagger-slots N  /open  /home  /quit"
 	case "/status":
 		m.notice = m.statusText()
 	case "/port-attempts":
@@ -250,6 +263,44 @@ func (m *model) execute(command string) (tea.Model, tea.Cmd) {
 		}
 		m.portAttempts = attempts
 		m.notice = fmt.Sprintf("Port attempt limit set to %d. It will apply after restart.", attempts)
+	case "/upload-workers":
+		if len(parts) != 2 {
+			m.notice = fmt.Sprintf("Choose /upload-workers followed by a number from 1 to %d.", MaxUploadWorkers)
+			return m, nil
+		}
+		workers, err := ParseUploadWorkers(parts[1])
+		if err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		if err := SaveUploadWorkers(m.cfg.ConfigPath, workers); err != nil {
+			m.notice = "Could not save upload workers: " + err.Error()
+			return m, nil
+		}
+		m.uploadWorkers, m.taggerSlots = LoadConcurrency(m.cfg.ConfigPath)
+		if m.cfg.ApplyConcurrency != nil {
+			m.cfg.ApplyConcurrency(m.uploadWorkers, m.taggerSlots)
+		}
+		m.notice = fmt.Sprintf("Upload workers set to %d and applied to new uploads.", workers)
+	case "/tagger-slots":
+		if len(parts) != 2 {
+			m.notice = fmt.Sprintf("Choose /tagger-slots followed by a number from 1 to %d.", MaxTaggerSlots)
+			return m, nil
+		}
+		slots, err := ParseTaggerSlots(parts[1])
+		if err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		if err := SaveTaggerSlots(m.cfg.ConfigPath, slots); err != nil {
+			m.notice = "Could not save tagger slots: " + err.Error()
+			return m, nil
+		}
+		m.uploadWorkers, m.taggerSlots = LoadConcurrency(m.cfg.ConfigPath)
+		if m.cfg.ApplyConcurrency != nil {
+			m.cfg.ApplyConcurrency(m.uploadWorkers, m.taggerSlots)
+		}
+		m.notice = fmt.Sprintf("Tagger slots set to %d and applied to new inference work.", slots)
 	case "/theme":
 		if len(parts) != 2 {
 			m.notice = "Choose /theme auto, /theme dark, or /theme light."
@@ -374,6 +425,7 @@ func (m *model) homeStatusLines() []string {
 	lines = append(lines,
 		p.successStyle().Render("■")+" Gallery server ready",
 		p.successStyle().Render("■")+" Database connected",
+		p.secondaryStyle().Render(fmt.Sprintf("■ Upload workers %d · Tagger slots %d", m.uploadWorkers, m.taggerSlots)),
 	)
 	if m.result.TaggerDisabled {
 		lines = append(lines, p.mutedStyle().Render("■")+" Auto-tagger "+m.result.TaggerStatus)
@@ -565,7 +617,7 @@ func (m *model) commandSuggestions() string {
 	if !strings.HasPrefix(m.input, "/") || strings.Contains(m.input, " ") {
 		return ""
 	}
-	commands := []string{"/help", "/home", "/log", "/open", "/port-attempts", "/quit", "/status", "/theme"}
+	commands := []string{"/help", "/home", "/log", "/open", "/port-attempts", "/quit", "/status", "/tagger-slots", "/theme", "/upload-workers"}
 	matches := make([]string, 0, len(commands))
 	for _, command := range commands {
 		if strings.HasPrefix(command, strings.ToLower(m.input)) {
@@ -587,10 +639,12 @@ func (m *model) statusText() string {
 		return "Startup failed: " + m.result.Err.Error()
 	}
 	return fmt.Sprintf(
-		"Server %s · Database %s · Tagger %s · Theme %s · Port attempts %d",
+		"Server %s · Database %s · Tagger %s · Upload workers %d · Tagger slots %d · Theme %s · Port attempts %d",
 		m.result.URL,
 		filepath.Base(m.result.DatabasePath),
 		m.result.TaggerStatus,
+		m.uploadWorkers,
+		m.taggerSlots,
 		m.mode,
 		m.portAttempts,
 	)
