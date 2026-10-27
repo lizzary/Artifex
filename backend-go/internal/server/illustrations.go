@@ -918,20 +918,113 @@ func (s *Server) GetIllustrationMetadata(w http.ResponseWriter, r *http.Request)
 
 	db := database.GetDB()
 	var extData sql.NullString
-	if err := db.QueryRow("SELECT extended_data FROM illustrations WHERE id = ?", illID).
-		Scan(&extData); err == sql.ErrNoRows {
+	var filename string
+	var groupID int
+	if err := db.QueryRowContext(r.Context(), "SELECT extended_data, filename, group_id FROM illustrations WHERE id = ?", illID).
+		Scan(&extData, &filename, &groupID); err == sql.ErrNoRows {
 		writeError(w, 404, "Illustration not found")
+		return
+	} else if err != nil {
+		writeError(w, 500, "Failed to read illustration metadata")
 		return
 	}
 
-	if extData.Valid {
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(extData.String), &parsed); err == nil {
-			writeJSON(w, 200, parsed)
-			return
+	decode := func(raw string) map[string]interface{} {
+		var value map[string]interface{}
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.UseNumber()
+		if decoder.Decode(&value) != nil || value == nil {
+			return map[string]interface{}{}
+		}
+		var extra interface{}
+		if decoder.Decode(&extra) != io.EOF {
+			return map[string]interface{}{}
+		}
+		return value
+	}
+	parsed := decode(extData.String)
+	if parsed["parser_version"] == metadata.ParserVersion {
+		writeJSON(w, 200, parsed)
+		return
+	}
+
+	// Resolve the stored upload location, never a path supplied by embedded metadata.
+	// A missing original leaves historical metadata intact and can be retried later.
+	if groupID <= 0 || !filepath.IsLocal(filename) || strings.ContainsAny(filename, `/\`) {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	originalPath := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID), "originals", filename)
+	uploadsRoot, rootErr := filepath.EvalSymlinks(s.UploadsDir())
+	resolvedPath, pathErr := filepath.EvalSymlinks(originalPath)
+	if rootErr != nil || pathErr != nil {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	relative, err := filepath.Rel(uploadsRoot, resolvedPath)
+	if err != nil || !filepath.IsLocal(relative) {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	original, err := os.Open(resolvedPath)
+	if err != nil {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	config, _, configErr := image.DecodeConfig(original)
+	closeErr := original.Close()
+	if configErr != nil || closeErr != nil || config.Width <= 0 || config.Height <= 0 {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	// Extract only needs image bounds; do not allocate or decode the pixel buffer.
+	fresh, err := metadata.Extract(resolvedPath, &image.RGBA{Rect: image.Rect(0, 0, config.Width, config.Height)})
+	if err != nil {
+		writeJSON(w, 200, parsed)
+		return
+	}
+	for _, key := range []string{
+		"Model", "Negative Model", "Seed", "Positive Prompt", "Middle Prompt", "Negative Prompt", "Sampler", "Scheduler",
+		"Steps", "CFG Scale", "CFG Scale 2", "Denoise", "Guidance", "Start Step", "End Step",
+		"LoRAs", "Generation Stages",
+	} {
+		delete(parsed, key)
+	}
+	if fileInfo, ok := fresh["fileinfo"].(map[string]interface{}); ok {
+		previous, _ := parsed["fileinfo"].(map[string]interface{})
+		if previous == nil {
+			previous = map[string]interface{}{}
+		}
+		for key, value := range fileInfo {
+			previous[key] = value
+		}
+		// Match the final upload path recorded by commitPreparedUpload.
+		previous["filename"] = filepath.ToSlash(originalPath)
+		fresh["fileinfo"] = previous
+	}
+	for key, value := range fresh {
+		parsed[key] = value
+	}
+	if encoded, err := json.Marshal(parsed); err == nil {
+		var previous interface{}
+		if extData.Valid {
+			previous = extData.String
+		}
+		// Compare-and-swap keeps concurrent refreshes or other metadata changes intact.
+		updated, err := db.ExecContext(r.Context(), `
+			UPDATE illustrations SET extended_data = ?
+			WHERE id = ? AND filename = ? AND group_id = ? AND extended_data IS ?
+		`, string(encoded), illID, filename, groupID, previous)
+		if err == nil {
+			if count, err := updated.RowsAffected(); err == nil && count == 0 {
+				var current sql.NullString
+				if err := db.QueryRowContext(r.Context(), "SELECT extended_data FROM illustrations WHERE id = ?", illID).Scan(&current); err == nil {
+					parsed = decode(current.String)
+				}
+			}
 		}
 	}
-	writeJSON(w, 200, map[string]interface{}{})
+	writeJSON(w, 200, parsed)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

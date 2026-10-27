@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Artifex is a local-first, self-hosted workspace for ComfyUI output.** It
-extracts generation metadata from PNG files, can tag images with a local vision
+extracts generation metadata from PNG and WebP files, can tag images with a local vision
 model, and gives large libraries a gallery, full-text tag search, batch tools,
 and an interactive color-group board.
 
@@ -32,7 +32,7 @@ release or the optional tagging model.
   **Other**.
 - **ComfyUI metadata extraction** — reads model, prompts, seed, sampler,
   scheduler, steps, CFG, LoRAs, resolution, file size, and creation time from
-  PNG metadata without requiring ComfyUI to be installed.
+  PNG/WebP metadata without requiring ComfyUI to be installed.
 - **Local AI tagging** — runs WD EVA02-Large Tagger v3 through ONNX Runtime,
   with CPU inference by default and optional CUDA acceleration.
 - **Fast local browsing** — SQLite-backed galleries, tag-prefix search,
@@ -257,19 +257,38 @@ details, or start a slideshow.
 
 Slideshow intervals can be set from 1–60 seconds, with 2/3/5/10 second presets.
 
-For ComfyUI PNGs, the details panel can expose:
+For ComfyUI PNG and WebP images, the details panel can expose:
 
 | Category | Extracted values |
 | --- | --- |
 | File | gallery, resolution, file size, creation time |
-| Generation | model, seed, sampler, scheduler, steps, CFG scale |
-| Prompts | positive and negative prompts |
+| Generation | model, optional negative model, seed, sampler, scheduler, steps, CFG scales, guidance, denoise, start/end steps |
+| Prompts | positive, negative, and optional middle prompts |
 | Add-ons | LoRA names plus model/CLIP strengths |
 | Library | editable tags |
 
-Artifex reads embedded ComfyUI `prompt` and `workflow` JSON from supported PNG
-text metadata. Non-PNG files and PNGs without a supported workflow still retain
-their basic file information.
+The parser is aligned with [ComfyUI v0.43.0](https://github.com/Comfy-Org/ComfyUI/tree/426f5eea52a7ece1dd599fff4cb6cd1f352ddd24)
+(commit `426f5eea52a7ece1dd599fff4cb6cd1f352ddd24`). It reads embedded `prompt`
+and `workflow` JSON from PNG text chunks, including compressed text, and ComfyUI
+WebP EXIF metadata. Other image formats and images without generation metadata
+still retain their basic file information.
+
+Generation details follow graph connections from image outputs through the
+sampler, model, conditioning, noise, and scheduler nodes. This supports split
+samplers, modern text encoders, workflow subgraphs, and exact 64-bit seeds;
+prompt language or wording does not determine positive/negative polarity.
+Execution-prompt values take precedence over saved UI widget values. For multiple
+outputs or sampling passes, the details panel uses the first stage in a stable
+output traversal order. The metadata API also exposes all detected passes as
+`Generation Stages`, keeping each pass's parameters together.
+
+Existing library entries are refreshed when their metadata is next requested
+after a parser upgrade. Artifex reads the original image without decoding its
+pixel buffer and caches the new result; if the original is missing or unreadable,
+the previous metadata remains available. Third-party nodes are handled on a
+best-effort basis using known IDs, fields, and connections; arbitrary custom-node
+logic cannot be reproduced from saved metadata alone. Values that require running
+an unsupported computation remain unavailable instead of being guessed.
 
 <p align="center">
   <a href="readme/access/lightbox-with-comfyui-meta.png">
@@ -479,7 +498,7 @@ trusted network or behind your own access control.
 | Board | DOM compatibility renderer plus PixiJS 8 / WebGL 2 renderer |
 | Backend | Go 1.26, Chi router, Bubble Tea/Lipgloss terminal UI |
 | Storage | SQLite in WAL mode, with FTS5 for tag search |
-| Metadata | Native Go PNG chunk and ComfyUI workflow parser |
+| Metadata | Native Go PNG/WebP metadata reader and ComfyUI graph parser |
 | Imaging | Original files plus 400 px and 1200 px JPEG thumbnails |
 | Tagger | `onnxruntime_go`, ONNX Runtime 1.26.0, WD EVA02-Large Tagger v3 |
 | Packaging | Executable + external `frontend/` + platform ONNX Runtime library |

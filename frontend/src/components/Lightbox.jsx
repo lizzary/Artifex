@@ -37,13 +37,20 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
 
   const META_KEYS = useMemo(() => [
     { key: 'Model', label: t('lightbox.meta.model') },
+    { key: 'Negative Model', label: t('lightbox.meta.negativeModel') },
     { key: 'Seed', label: t('lightbox.meta.seed') },
     { key: 'Positive Prompt', label: t('lightbox.meta.positivePrompt') },
+    { key: 'Middle Prompt', label: t('lightbox.meta.middlePrompt') },
     { key: 'Negative Prompt', label: t('lightbox.meta.negativePrompt') },
     { key: 'Sampler', label: t('lightbox.meta.sampler') },
     { key: 'Scheduler', label: t('lightbox.meta.scheduler') },
     { key: 'Steps', label: t('lightbox.meta.steps') },
     { key: 'CFG Scale', label: t('lightbox.meta.cfgScale') },
+    { key: 'CFG Scale 2', label: t('lightbox.meta.cfgScale2') },
+    { key: 'Guidance', label: t('lightbox.meta.guidance') },
+    { key: 'Denoise', label: t('lightbox.meta.denoise') },
+    { key: 'Start Step', label: t('lightbox.meta.startStep') },
+    { key: 'End Step', label: t('lightbox.meta.endStep') },
     { key: 'LoRAs', label: t('lightbox.meta.loras') },
   ], [t]);
 

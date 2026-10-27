@@ -1,0 +1,10 @@
+/frontend/node_modules/
+/frontend/build/
+/backend-go/uploads/
+/backend-go/.idea/
+/frontend/.idea/
+/.idea/
+/backend-go/gallery.db
+/backend-go/gallery.db-shm
+/backend-go/gallery.db-wal
+/backend-go/settings.json
