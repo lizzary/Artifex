@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 
-	"artifex-backend/internal/groupconfig"
 	"artifex-backend/internal/models"
 )
 
@@ -206,17 +204,6 @@ func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupConfigMu.Lock()
-	cfg, configErr := groupconfig.Load(s.GroupConfigPath())
-	if configErr == nil {
-		delete(cfg.Groups, strconv.Itoa(groupID))
-		cfg.GroupOrder = slices.DeleteFunc(cfg.GroupOrder, func(id int) bool { return id == groupID })
-		configErr = groupconfig.Save(s.GroupConfigPath(), cfg)
-	}
-	s.groupConfigMu.Unlock()
-	if configErr != nil {
-		s.logger().Warn("groups", "remove group configuration: %v", configErr)
-	}
 	w.WriteHeader(204)
 
 	// The database row is the source of truth and is already gone. Recursive

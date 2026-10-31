@@ -10,6 +10,7 @@ import InferenceIcon from './InferenceIcon';
 import { useLocale } from '../contexts/LocaleContext';
 import { groupDisplayName, normalizePairTerms, validateExpression } from '../utils/grouping';
 import { groupColorsFromHex, toHexColor } from '../utils/groupColors';
+import { createColorId } from '../utils/colorConfig';
 
 function normalizeOrder(order, pairs) {
   const ids = new Set(pairs.map((pair) => pair.id));
@@ -38,28 +39,38 @@ function cleanPairs(pairs) {
 export default function GroupConfigModal({ config, onClose }) {
   const { t } = useLocale();
   const {
-    sets, activeSetId, switchSet, addSet, removeSet, renameSet,
-    setPairs, palette, matchOrder,
+    sets, activeSetId, switchSet, addSet, removeSet,
+    saveSetChanges, palette,
   } = config;
-  const activeSet = sets.find((set) => set.id === activeSetId) || sets[0];
+  const [editingSetId, setEditingSetId] = useState(activeSetId);
+  const [editorRevision, setEditorRevision] = useState(0);
+  const baselineRef = useRef(null);
+  const createDefaultRef = useRef(false);
 
   const [editingPairs, setEditingPairs] = useState([]);
   const [editingMatchOrder, setEditingMatchOrder] = useState([]);
   const [editingName, setEditingName] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [invalidIds, setInvalidIds] = useState(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const editingAssignments = sets.find((set) => set.id === editingSetId)?.manual_assignments;
 
   useEffect(() => {
-    const target = sets.find((set) => set.id === activeSetId);
-    if (target) {
-      const pairs = clonePairs(target.pairs || []);
-      setEditingPairs(pairs);
-      setEditingMatchOrder(normalizeOrder(target.match_order || matchOrder, pairs));
-      setEditingName(target.name || '');
-    }
+    if (baselineRef.current?.id === editingSetId) return;
+    const target = sets.find((set) => set.id === editingSetId);
+    if (!target) return;
+    const pairs = cleanPairs(clonePairs(target.pairs));
+    const matchOrder = normalizeOrder(target.match_order, pairs);
+    baselineRef.current = { id: target.id, name: target.name.trim(), pairs, match_order: matchOrder };
+    createDefaultRef.current = Boolean(config.isDraftSet);
+    setEditingPairs(clonePairs(pairs));
+    setEditingMatchOrder([...matchOrder]);
+    setEditingName(target.name.trim());
     setDeleteConfirm(null);
     setInvalidIds(new Set());
-  }, [activeSetId, sets, matchOrder]);
+    setSaveError('');
+  }, [config.isDraftSet, editingSetId, editorRevision, sets]);
 
   const priorityPairs = useMemo(() => {
     const byId = new Map(editingPairs.map((pair) => [pair.id, pair]));
@@ -68,12 +79,13 @@ export default function GroupConfigModal({ config, onClose }) {
       .filter((pair) => pair && normalizePairTerms(pair).some((term) => term.value.trim()));
   }, [editingPairs, editingMatchOrder]);
 
-  const manualCounts = useMemo(() => Object.values(config.manualAssignments || {}).reduce((counts, pairId) => {
+  const manualCounts = useMemo(() => Object.values(editingAssignments || {}).reduce((counts, pairId) => {
     counts[pairId] = (counts[pairId] || 0) + 1;
     return counts;
-  }, {}), [config.manualAssignments]);
+  }, {}), [editingAssignments]);
 
-  const commitCurrent = () => {
+  const commitCurrent = async () => {
+    if (saving || !baselineRef.current) return false;
     const cleaned = cleanPairs(editingPairs);
     const invalid = new Set(
       cleaned.filter((pair) => (
@@ -85,23 +97,56 @@ export default function GroupConfigModal({ config, onClose }) {
       return false;
     }
 
-    const name = editingName.trim();
-    if (name && name !== activeSet?.name) renameSet(activeSetId, name);
-    setPairs(cleaned, normalizeOrder(editingMatchOrder, cleaned));
-    setInvalidIds(new Set());
-    return true;
+    const baseline = baselineRef.current;
+    const draft = {
+      id: baseline.id,
+      name: editingName.trim() || baseline.name,
+      pairs: cleaned,
+      match_order: normalizeOrder(editingMatchOrder, cleaned),
+    };
+    setSaving(true);
+    setSaveError('');
+    try {
+      const saved = await saveSetChanges(baseline, draft, createDefaultRef.current);
+      baselineRef.current = draft;
+      if (saved) createDefaultRef.current = false;
+      setInvalidIds(new Set());
+      return true;
+    } catch (error) {
+      setSaveError(error.message || t('settings.toast.saveFailed'));
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSwitchSet = (setId) => {
-    if (setId !== activeSetId && commitCurrent()) switchSet(setId);
+  const handleSwitchSet = async (setId) => {
+    if (setId === editingSetId || !await commitCurrent()) return;
+    setSaving(true);
+    try {
+      await switchSet(setId);
+      setEditingSetId(setId);
+    } catch (error) {
+      setSaveError(error.message || t('settings.toast.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleAddSet = () => {
-    if (commitCurrent()) addSet();
+  const handleAddSet = async () => {
+    if (!await commitCurrent()) return;
+    setSaving(true);
+    try {
+      setEditingSetId(await addSet());
+    } catch (error) {
+      setSaveError(error.message || t('settings.toast.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSave = () => {
-    if (commitCurrent()) onClose();
+  const handleSave = async () => {
+    if (await commitCurrent()) onClose();
   };
 
   const updateTerm = (pairId, termIndex, updates) => {
@@ -143,7 +188,7 @@ export default function GroupConfigModal({ config, onClose }) {
   };
 
   const addPair = () => {
-    const id = `pair_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = createColorId();
     const color = palette[editingPairs.length % palette.length];
     const pair = {
       id,
@@ -178,13 +223,25 @@ export default function GroupConfigModal({ config, onClose }) {
     )));
   };
 
-  const handleDeleteSet = () => {
-    if (deleteConfirm !== activeSetId) {
-      setDeleteConfirm(activeSetId);
+  const handleDeleteSet = async () => {
+    if (saving) return;
+    if (deleteConfirm !== editingSetId) {
+      setDeleteConfirm(editingSetId);
       return;
     }
-    removeSet(activeSetId);
-    setDeleteConfirm(null);
+    setSaving(true);
+    setSaveError('');
+    try {
+      const nextId = await removeSet(editingSetId);
+      baselineRef.current = null;
+      setEditingSetId(nextId || 'default');
+      setEditorRevision((revision) => revision + 1);
+      setDeleteConfirm(null);
+    } catch (error) {
+      setSaveError(error.message || t('settings.toast.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const reorderPriority = (nextPairs) => {
@@ -200,6 +257,7 @@ export default function GroupConfigModal({ config, onClose }) {
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay/60 p-3 backdrop-blur-sm sm:p-6"
       role="dialog"
+      aria-busy={saving}
       aria-modal="true"
       aria-labelledby="group-config-title"
     >
@@ -207,8 +265,10 @@ export default function GroupConfigModal({ config, onClose }) {
         initial={{ scale: 0.97, y: 12, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         exit={{ scale: 0.97, y: 12, opacity: 0 }}
+        inert={saving}
         className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-edge-primary bg-surface-secondary shadow-2xl"
       >
+        {saveError && <p role="alert" className="px-5 py-3 text-sm text-danger">{saveError}</p>}
         <div className="flex items-start justify-between gap-4 border-b border-edge-primary px-5 py-4 sm:px-7 sm:py-5">
           <div className="min-w-0">
             <div className="mb-1.5 flex items-center gap-2 text-accent">
@@ -263,7 +323,7 @@ export default function GroupConfigModal({ config, onClose }) {
           </div>
           <div className="artifex-scrollbar flex items-center gap-1.5 overflow-x-auto pb-3">
             {sets.map((set, index) => {
-              const isActive = set.id === activeSetId;
+              const isActive = set.id === editingSetId;
               return (
                 <button
                   type="button"
@@ -308,7 +368,7 @@ export default function GroupConfigModal({ config, onClose }) {
                 onClick={handleDeleteSet}
                 onBlur={() => setDeleteConfirm(null)}
                 className={`rounded-xl px-3 py-2.5 text-xs font-medium transition-all focus:outline-none focus:ring-2 focus:ring-danger/40 ${
-                  deleteConfirm === activeSetId
+                  deleteConfirm === editingSetId
                     ? 'bg-danger text-white shadow-md shadow-danger/20'
                     : 'text-content-muted hover:bg-danger/10 hover:text-danger'
                 }`}
@@ -316,7 +376,7 @@ export default function GroupConfigModal({ config, onClose }) {
               >
                 <span className="flex items-center gap-1.5">
                   <Trash2 className="h-3.5 w-3.5" />
-                  {deleteConfirm === activeSetId ? t('groupConfig.sets.deleteConfirmShort') : t('groupConfig.sets.deleteSet')}
+                  {deleteConfirm === editingSetId ? t('groupConfig.sets.deleteConfirmShort') : t('groupConfig.sets.deleteSet')}
                 </span>
               </button>
             )}
@@ -443,7 +503,7 @@ export default function GroupConfigModal({ config, onClose }) {
 
         <div className="flex items-center justify-between gap-3 border-t border-edge-primary bg-surface-secondary px-5 py-4 sm:px-7">
           <p className="hidden text-[10px] text-content-muted sm:block">
-            {t('groupConfig.footerSummary', { groups: editingPairs.length, manual: Object.keys(config.manualAssignments || {}).length })}
+            {t('groupConfig.footerSummary', { groups: editingPairs.length, manual: Object.keys(editingAssignments || {}).length })}
           </p>
           <div className="ml-auto flex items-center gap-3">
           <button

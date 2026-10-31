@@ -337,12 +337,15 @@ and reloads the page. An empty folder starts a new library; switching back resto
 the previous library. Files are not moved between directories. The executable's
 directory is the default database directory.
 
-Each database directory contains `gallery.db`, `uploads/`, `models/`, and
-`groupconfig.json`. The latter stores gallery order and independent settings for
+Each database directory contains `gallery.db`, `uploads/`, and `models/`.
+SQLite also stores gallery order and independent settings for
 each gallery: sort field and direction, image quality, card size, original aspect
 ratio, color grouping, page size, color-group sets/rules, and manual assignments.
 New galleries start with empty color groups. Missing or invalid color configurations
 are treated as empty. Color-group controls are available even in empty galleries.
+Color edits use targeted create, update, and delete operations. Concurrent changes
+to different fields are preserved; the last successful commit wins for the same
+field. A rule expression and each ordering list are treated as individual fields.
 
 Gallery defaults remain default/newest descending order, low image quality, card
 size 3, square crops, no color grouping, and 50 images per page. Current page,
@@ -356,8 +359,7 @@ artifex-directory/
 └── onnxruntime.*             # shipped platform runtime library
 
 selected-database-directory/
-├── gallery.db
-├── groupconfig.json          # gallery preferences and color configurations
+├── gallery.db                # images, gallery preferences, color configurations and order
 ├── models/
 │   ├── default/
 │   └── user_model/
@@ -399,6 +401,11 @@ Starting Artifex in a terminal opens a Bubble Tea status interface. Use
 
 The log view supports arrow keys, Page Up/Down, `End`, `f` to toggle follow
 mode, and `1`–`4` to filter log levels.
+
+## Developer handoff
+
+See the [development and maintenance guide](docs/开发维护文档.md) (Chinese) for
+setup, architecture, storage, API contracts, testing, release, and troubleshooting.
 
 ## Build from source
 

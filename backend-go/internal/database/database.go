@@ -36,6 +36,17 @@ func createSchema(db *sql.DB) error {
 			created_at TEXT DEFAULT (datetime('now', 'localtime'))
 		);
 
+		CREATE TABLE IF NOT EXISTS group_configs (
+			group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+			view TEXT NOT NULL CHECK (json_valid(view)),
+			colors TEXT NOT NULL CHECK (json_valid(colors))
+		);
+
+		CREATE TABLE IF NOT EXISTS group_order (
+			group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+			position INTEGER NOT NULL UNIQUE CHECK (position >= 0)
+		);
+
 		CREATE TABLE IF NOT EXISTS illustrations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			group_id INTEGER NOT NULL,

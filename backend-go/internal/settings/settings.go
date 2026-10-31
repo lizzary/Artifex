@@ -120,14 +120,14 @@ func Update(path string, change func(*Settings) error) (*Settings, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := WriteFile(path, data); err != nil {
+	if err := writeFile(path, data); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-// WriteFile replaces a complete configuration without exposing a partial write.
-func WriteFile(path string, data []byte) error {
+// writeFile replaces a complete configuration without exposing a partial write.
+func writeFile(path string, data []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".config-*")
 	if err != nil {
 		return err

@@ -16,7 +16,6 @@ import (
 
 	"artifex-backend/internal/applog"
 	"artifex-backend/internal/database"
-	"artifex-backend/internal/groupconfig"
 	"artifex-backend/internal/models"
 	"artifex-backend/internal/settings"
 	"artifex-backend/internal/workerlimit"
@@ -59,7 +58,6 @@ type Server struct {
 	db                  *sql.DB
 	libraryMu           sync.RWMutex
 	libraryID           string
-	groupConfigMu       sync.Mutex
 }
 
 // Image decoding and Lanczos thumbnail generation need several times the
@@ -142,6 +140,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		r.Put("/settings", s.UpdateSettings)
 		r.Get("/group-config", s.GetGroupConfig)
 		r.Put("/group-config", s.UpdateGroupConfig)
+		r.Post("/groups/{groupId}/color-operations", s.ApplyColorOperations)
 	})
 
 	// SPA catch-all (registered last so API routes take priority)
@@ -153,11 +152,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) UploadsDir() string { return filepath.Join(s.Config.DatabaseDir, "uploads") }
-func (s *Server) ModelsDir() string  { return filepath.Join(s.Config.DatabaseDir, "models") }
-func (s *Server) GroupConfigPath() string {
-	return filepath.Join(s.Config.DatabaseDir, "groupconfig.json")
-}
+func (s *Server) UploadsDir() string   { return filepath.Join(s.Config.DatabaseDir, "uploads") }
+func (s *Server) ModelsDir() string    { return filepath.Join(s.Config.DatabaseDir, "models") }
 func (s *Server) SettingsPath() string { return s.Config.SettingsPath }
 func (s *Server) FrontendDir() string  { return s.Config.FrontendDir }
 
@@ -169,9 +165,6 @@ func openLibrary(root string) (*sql.DB, error) {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
 			return nil, err
 		}
-	}
-	if _, err := groupconfig.Load(filepath.Join(root, "groupconfig.json")); err != nil {
-		return nil, err
 	}
 	return database.Open(filepath.Join(root, "gallery.db"))
 }

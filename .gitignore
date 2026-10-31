@@ -8,4 +8,4 @@
 /backend-go/gallery.db-shm
 /backend-go/gallery.db-wal
 /backend-go/config.toml
-/backend-go/groupconfig.json
+/docs/开发维护文档.md

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { getGroupConfig, updateGroupConfig } from '../api';
+import { getGroupConfig, updateColorConfig, updateGroupConfig } from '../api';
+import { applyColorOperations } from '../utils/colorConfig';
 
 export const DEFAULT_GROUP_VIEW = Object.freeze({
   sort_by: '',
@@ -34,10 +35,7 @@ let writeChain = Promise.resolve();
 const listeners = new Set();
 
 function publish(error = snapshot.error) {
-  const data = pending.reduce((current, operation) => {
-    const patch = operation.transform(current);
-    return patch ? applyPatch(current, patch) : current;
-  }, committed);
+  const data = pending.reduce((current, operation) => operation.apply(current), committed);
   snapshot = { data, error };
   listeners.forEach((listener) => listener());
 }
@@ -75,19 +73,14 @@ function applyPatch(data, patch) {
   return { ...data, ...patch, groups };
 }
 
-// Patches are computed after loading and sent in order. Each write touches only
-// the requested fields, so simultaneous view and color edits preserve each other.
-export async function changeGroupSettings(transform) {
+async function enqueueChange(operation) {
   await loadGroupSettings();
-  const operation = { transform };
   pending.push(operation);
   publish(null);
   const result = writeChain.then(async () => {
     try {
-      const patch = transform(committed);
-      if (!patch) return false;
-      committed = await updateGroupConfig(patch);
-      return true;
+      committed = await operation.send(committed);
+      return committed;
     } catch (error) {
       snapshot = { ...snapshot, error };
       throw error;
@@ -98,6 +91,36 @@ export async function changeGroupSettings(transform) {
   });
   writeChain = result.catch(() => {});
   return result;
+}
+
+export function changeGroupSettings(transform) {
+  return enqueueChange({
+    apply(current) {
+      const patch = transform(current);
+      return patch ? applyPatch(current, patch) : current;
+    },
+    send(current) {
+      const patch = transform(current);
+      return patch ? updateGroupConfig(patch) : Promise.resolve(current);
+    },
+  });
+}
+
+export function changeColorSettings(groupId, operations) {
+  if (!operations.length) return Promise.resolve(false);
+  return enqueueChange({
+    apply(current) {
+      const group = current.groups[groupId];
+      return {
+        ...current,
+        groups: {
+          ...current.groups,
+          [groupId]: { ...group, colors: applyColorOperations(group?.colors, operations) },
+        },
+      };
+    },
+    send: () => updateColorConfig(groupId, operations),
+  });
 }
 
 export async function refreshGroupSettings() {

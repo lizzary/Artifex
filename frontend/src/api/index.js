@@ -212,3 +212,11 @@ export function updateGroupConfig(data) {
     body: JSON.stringify(data),
   });
 }
+
+export function updateColorConfig(groupId, operations) {
+  return request(`/api/groups/${groupId}/color-operations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operations }),
+  });
+}
