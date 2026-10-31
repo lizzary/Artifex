@@ -8,33 +8,26 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var DB *sql.DB
-
-func InitDB(dbPath string) error {
+func Open(dbPath string) (*sql.DB, error) {
 	// Ensure parent directory exists
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		return nil, err
 	}
 
-	var err error
-	DB, err = sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Enable WAL mode and foreign keys
-	if _, err := DB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return err
+	if err := createSchema(db); err != nil {
+		db.Close()
+		return nil, err
 	}
-	if _, err := DB.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		return err
-	}
-
-	return createSchema()
+	return db, nil
 }
 
-func createSchema() error {
+func createSchema(db *sql.DB) error {
 	schema := `
 		CREATE TABLE IF NOT EXISTS groups (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,10 +74,6 @@ func createSchema() error {
 			ON illustrations(group_id);
 	`
 
-	_, err := DB.Exec(schema)
+	_, err := db.Exec(schema)
 	return err
-}
-
-func GetDB() *sql.DB {
-	return DB
 }

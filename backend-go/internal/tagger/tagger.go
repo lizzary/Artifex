@@ -70,7 +70,7 @@ func TaggerSlots() int {
 	return taggerLimiter.Limit()
 }
 
-func clearTaggerCache() {
+func Unload() {
 	taggerMu.Lock()
 	defer taggerMu.Unlock()
 	clearTaggerCacheLocked()

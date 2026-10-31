@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
-
-const STORAGE_KEY = 'gallery-download-naming-format';
+import useProjectPreference from './useProjectSettings';
 
 export const NAMING_TAGS = [
   { key: 'date', label: 'date' },
@@ -84,19 +82,6 @@ export function resolveFilename(format, illustration) {
 }
 
 export default function useDownloadConfig() {
-  const [format, setFormat] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) || '';
-    } catch {
-      return '';
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, format);
-    } catch { /* ignore */ }
-  }, [format]);
-
+  const [format, setFormat] = useProjectPreference('download_naming_format', '');
   return { format, setFormat };
 }

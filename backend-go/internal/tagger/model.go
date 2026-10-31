@@ -82,7 +82,7 @@ func ValidateDefaultModel(modelsDir string) error {
 // session is released first so Windows doesn't keep the .onnx file locked.
 func DeleteDefaultModel(modelsDir string) error {
 	if GetActiveModel() == "" {
-		clearTaggerCache()
+		Unload()
 	}
 	defaultDir := filepath.Join(modelsDir, "default")
 	if err := os.RemoveAll(defaultDir); err != nil {
@@ -114,7 +114,7 @@ func DownloadModel(ctx context.Context, modelsDir string) error {
 	}
 
 	if GetActiveModel() == "" {
-		clearTaggerCache()
+		Unload()
 	}
 	defaultDir := filepath.Join(modelsDir, "default")
 	backupDir := stagingDir + ".previous"

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"artifex-backend/internal/database"
 	"artifex-backend/internal/models"
 )
 
@@ -41,7 +40,7 @@ func (s *Server) SearchIllustrations(w http.ResponseWriter, r *http.Request) {
 	}
 	ftsQuery := strings.Join(safeTerms, " AND ")
 
-	db := database.GetDB()
+	db := s.db
 
 	// Count total
 	var total int

@@ -9,17 +9,77 @@ import {
   FREE_ROW_LIMIT_MIN,
 } from '../../utils/colorBoardLayout';
 
-export function BoardCircleLabel({ circle }) {
+export function BoardCircleLabel({ circle, onRenameGroup }) {
   const { t } = useLocale();
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const inputRef = useRef(null);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    if (!editing) return undefined;
+    inputRef.current?.select();
+    const handleOutsidePointerDown = (event) => {
+      if (event.target !== inputRef.current) inputRef.current?.blur();
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+  }, [editing]);
+
+  const finishEditing = () => {
+    if (!editingRef.current) return;
+    editingRef.current = false;
+    setEditing(false);
+    const name = draftName.trim();
+    if (name !== circle.label) onRenameGroup(circle.id, name);
+  };
 
   return (
     <div
-      className="absolute left-1/2 top-7 -translate-x-1/2 whitespace-nowrap rounded-2xl border bg-surface-secondary/92 px-4 py-2.5 shadow-lg shadow-overlay/10 backdrop-blur-xl"
+      data-board-control
+      className="pointer-events-auto absolute left-1/2 top-7 z-30 -translate-x-1/2 whitespace-nowrap rounded-2xl border bg-surface-secondary/92 px-4 py-2.5 shadow-lg shadow-overlay/10 backdrop-blur-xl"
       style={{ borderColor: circle.borderColor }}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-center gap-2">
         <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: circle.borderColor }} />
-        <span className="max-w-[240px] truncate text-sm font-semibold text-content-primary">{circle.label}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            autoFocus
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onBlur={finishEditing}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                editingRef.current = false;
+                setEditing(false);
+              }
+            }}
+            aria-label={t('colorBoard.groupName')}
+            className="w-52 rounded-md border border-accent bg-surface-primary px-1.5 text-center text-sm font-semibold text-content-primary outline-none focus:ring-2 focus:ring-accent/30"
+          />
+        ) : (
+          <button
+            type="button"
+            title={t('colorBoard.renameGroup')}
+            disabled={!onRenameGroup}
+            onClick={() => {
+              setDraftName(circle.label);
+              editingRef.current = true;
+              setEditing(true);
+            }}
+            className="max-w-[240px] truncate rounded-md text-sm font-semibold text-content-primary outline-none hover:text-accent focus:ring-2 focus:ring-accent/40"
+          >
+            {circle.label}
+          </button>
+        )}
         <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[10px] tabular-nums text-content-muted">
           {circle.items.length}
         </span>
@@ -38,7 +98,7 @@ export function BoardCircleLabel({ circle }) {
   );
 }
 
-export function BoardCircleLabelsLayer({ circles }) {
+export function BoardCircleLabelsLayer({ circles, onRenameGroup }) {
   return circles.map((circle) => (
     <div
       key={circle.id}
@@ -50,7 +110,7 @@ export function BoardCircleLabelsLayer({ circles }) {
         height: circle.radius * 2,
       }}
     >
-      <BoardCircleLabel circle={circle} />
+      <BoardCircleLabel circle={circle} onRenameGroup={onRenameGroup} />
     </div>
   ));
 }

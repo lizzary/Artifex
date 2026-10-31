@@ -56,7 +56,7 @@ export default function SearchOverlay({ query, onClose }) {
 
   const translatedGroupOptions = useMemo(() => [
     { value: 'none', label: t('dropdown.noGrouping') },
-    { value: 'mixed', label: t('dropdown.smartGrouping') },
+    { value: 'mixed', label: t('dropdown.colorGrouping') },
   ], [t]);
 
   const translatedQualityOptions = useMemo(() => [
@@ -326,27 +326,25 @@ export default function SearchOverlay({ query, onClose }) {
               className="w-52"
               inputClassName="w-full pl-3 pr-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
             />
-            {items.length > 1 && (
-              <SettingsSelect
-                variant="toolbar"
-                icon={Layers}
-                label={t('searchOverlay.group.label')}
-                options={translatedGroupOptions}
-                value={groupBy}
-                onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
-                rightElement={
-                  groupBy !== 'none' ? (
-                    <button
-                      onClick={() => setShowGroupConfig(true)}
-                      className="p-2 rounded-lg bg-surface-tertiary border border-edge-secondary hover:border-edge-primary text-content-tertiary hover:text-content-primary transition-all"
-                      title={t('searchOverlay.group.configMixed')}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null
-                }
-              />
-            )}
+            <SettingsSelect
+              variant="toolbar"
+              icon={Layers}
+              label={t('searchOverlay.group.label')}
+              options={translatedGroupOptions}
+              value={groupBy}
+              onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
+              rightElement={
+                groupBy !== 'none' ? (
+                  <button
+                    onClick={() => setShowGroupConfig(true)}
+                    className="p-2 rounded-lg bg-surface-tertiary border border-edge-secondary hover:border-edge-primary text-content-tertiary hover:text-content-primary transition-all"
+                    title={t('searchOverlay.group.configMixed')}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                ) : null
+              }
+            />
             <SettingsSelect
               variant="toolbar"
               icon={Monitor}

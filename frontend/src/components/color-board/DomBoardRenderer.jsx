@@ -9,7 +9,7 @@ import InferenceIcon from '../InferenceIcon';
 import { BoardCircleLabel, BoardFreeItemsControl } from './BoardWorldUi';
 import { BOARD_CARD_QUALITY } from './constants';
 
-const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget }) {
+const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget, onRenameGroup }) {
   return circles.map((circle) => {
     const isTarget = dropTarget === circle.id;
     return (
@@ -30,7 +30,7 @@ const BoardCirclesLayer = memo(function BoardCirclesLayer({ circles, dropTarget 
           outlineOffset: isTarget ? 6 : 0,
         }}
       >
-        <BoardCircleLabel circle={circle} />
+        <BoardCircleLabel circle={circle} onRenameGroup={onRenameGroup} />
       </div>
     );
   });
@@ -151,6 +151,7 @@ const DomBoardRenderer = forwardRef(function DomBoardRenderer({
   dropTarget,
   freeRowLimit,
   onFreeRowLimitChange,
+  onRenameGroup,
   onCardMouseEnter,
   onCardMouseMove,
   onCardMouseLeave,
@@ -226,7 +227,7 @@ const DomBoardRenderer = forwardRef(function DomBoardRenderer({
         transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
       }}
     >
-      <BoardCirclesLayer circles={layout.circles} dropTarget={dropTarget} />
+      <BoardCirclesLayer circles={layout.circles} dropTarget={dropTarget} onRenameGroup={onRenameGroup} />
       <BoardFreeItemsControl
         layout={layout}
         freeRowLimit={freeRowLimit}

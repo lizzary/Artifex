@@ -92,6 +92,7 @@ const WebGLBoardRenderer = forwardRef(function WebGLBoardRenderer({
   dropTarget,
   freeRowLimit,
   onFreeRowLimitChange,
+  onRenameGroup,
   onKeyboardSelect,
   onUnavailable,
   theme,
@@ -312,7 +313,7 @@ const WebGLBoardRenderer = forwardRef(function WebGLBoardRenderer({
           transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
         }}
       >
-        <BoardCircleLabelsLayer circles={layout.circles} />
+        <BoardCircleLabelsLayer circles={layout.circles} onRenameGroup={onRenameGroup} />
         <BoardFreeItemsControl
           layout={layout}
           freeRowLimit={freeRowLimit}

@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/cors v1.2.2
 	github.com/mattn/go-isatty v0.0.22
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/yalue/onnxruntime_go v1.31.0
 	golang.org/x/image v0.42.0
 	modernc.org/sqlite v1.52.0

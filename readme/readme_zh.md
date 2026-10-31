@@ -88,6 +88,8 @@ Artifex 会在终端界面中显示图库的实际 URL。它从 `http://127.0.0.
 
 ### 白板操作
 
+点击颜色组抬头卡片的标题可直接改名；点击其他位置或按回车保存，按 Esc 取消。
+
 | 操作 | 结果 |
 | --- | --- |
 | 单击卡片 | 选中该卡片 |
@@ -253,15 +255,34 @@ Artifex 会从受支持的 PNG 文本元数据中读取内嵌的 ComfyUI `prompt
 
 官方发行版压缩包包含 ONNX Runtime，但**不包含**标签模型。
 
+## 设置与持久化
 
+可执行文件同级的 `config.toml` 保存项目设置：数据库目录、自动打标、GPU、活动模型、
+文件名冲突策略、并行数、下载命名、白板渲染器、其他区域每行数量及终端设置。
+仅界面语言和网页明暗主题保存在浏览器中。
+
+在**设置 → 常规 → 数据库目录**填写运行 Artifex 的电脑上的绝对目录路径，点击
+**保存并加载**即可切换图库并重新加载页面。空目录会创建新图库，切回原目录即可重新加载
+原图库；目录之间不会搬移文件。默认数据库目录为可执行文件所在目录。
+
+每个数据库目录包含 `gallery.db`、`uploads/`、`models/` 和 `groupconfig.json`。
+`groupconfig.json` 保存图库排列顺序，以及每个分组独立的排序方式和升降序、画质、卡片大小、
+原始宽高比、是否启用颜色分组、每页数量、颜色配置集和规则、手动归组。
+新分组的颜色配置为空；缺失或不合法的颜色配置也视为空。空图库同样可以使用颜色分组选项。
+
+分组默认值保持为默认排序、降序、低画质、卡片大小 3、关闭原始宽高比、不分组、每页 50 张。
+当前页码、幻灯片间隔和搜索视图设置只在当前会话使用，不持久保存。
 
 ```text
 artifex-directory/
 ├── artifex[.exe]
-├── frontend/                 # 随发行版提供的 Web 应用；请与二进制文件放在一起
-├── onnxruntime.*             # 发行版附带的平台运行时库
-├── gallery.db                # SQLite 数据库
-├── settings.json             # 保存设置后创建
+├── config.toml               # 项目设置，包含 database_dir
+├── frontend/                 # 发行版附带的 Web 应用
+└── onnxruntime.*             # 平台运行时库
+
+selected-database-directory/
+├── gallery.db
+├── groupconfig.json          # 每个分组的偏好及颜色配置
 ├── models/
 │   ├── default/
 │   └── user_model/
@@ -395,9 +416,6 @@ CGO_ENABLED=1 go test ./...
 | --- | --- | --- |
 | `-host` | `127.0.0.1` | 监听地址 |
 | `-port` | `8000` | 首个尝试的端口 |
-| `-db` | `<base>/gallery.db` | SQLite 数据库路径 |
-| `-uploads` | `<base>/uploads` | 原图和缩略图存储路径 |
-| `-models` | `<base>/models` | 默认和自定义模型存储路径 |
 | `-frontend` | 自动检测 | 构建后的前端目录 |
 | `-cli-theme` | 已保存的设置 | `auto`、`dark` 或 `light` 终端主题 |
 | `-no-ui` | `false` | 禁用交互式终端界面 |

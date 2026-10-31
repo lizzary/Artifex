@@ -1,16 +1,22 @@
 package server
 
 import (
+	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"artifex-backend/internal/applog"
+	"artifex-backend/internal/database"
+	"artifex-backend/internal/groupconfig"
 	"artifex-backend/internal/models"
 	"artifex-backend/internal/settings"
 	"artifex-backend/internal/workerlimit"
@@ -21,8 +27,7 @@ import (
 )
 
 type ServerConfig struct {
-	UploadsDir    string
-	ModelsDir     string
+	DatabaseDir   string
 	SettingsPath  string
 	FrontendDir   string
 	UploadWorkers int
@@ -51,6 +56,10 @@ type Server struct {
 	uploadMemoryLimiter *workerlimit.Weighted
 	uploadCommitMu      sync.Mutex
 	removeUploadDir     func(string) error
+	db                  *sql.DB
+	libraryMu           sync.RWMutex
+	libraryID           string
+	groupConfigMu       sync.Mutex
 }
 
 // Image decoding and Lanczos thumbnail generation need several times the
@@ -58,7 +67,11 @@ type Server struct {
 // user-selected worker count so that 16/32 workers remain safe for large art.
 const uploadDecodeMemoryBudget int64 = 512 << 20
 
-func NewServer(cfg ServerConfig) *Server {
+func NewServer(cfg ServerConfig) (*Server, error) {
+	db, err := openLibrary(cfg.DatabaseDir)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.UploadWorkers < 1 || cfg.UploadWorkers > settings.MaxUploadWorkers {
 		cfg.UploadWorkers = settings.DefaultUploadWorkers
 	}
@@ -67,12 +80,9 @@ func NewServer(cfg ServerConfig) *Server {
 		uploadLimiter:       workerlimit.New(cfg.UploadWorkers),
 		uploadMemoryLimiter: workerlimit.NewWeighted(uploadDecodeMemoryBudget),
 		removeUploadDir:     os.RemoveAll,
+		db:                  db,
+		libraryID:           rand.Text(),
 	}
-
-	// Create required directories
-	os.MkdirAll(s.UploadsDir(), 0755)
-	os.MkdirAll(filepath.Join(s.ModelsDir(), "default"), 0755)
-	os.MkdirAll(filepath.Join(s.ModelsDir(), "user_model"), 0755)
 
 	// Router setup
 	r := chi.NewRouter()
@@ -86,11 +96,13 @@ func NewServer(cfg ServerConfig) *Server {
 		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
+		ExposedHeaders:   []string{"X-Artifex-Library"},
 		AllowCredentials: true,
 	}))
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		r.Use(s.withLibrary)
 		// Groups
 		r.Get("/groups", s.ListGroups)
 		r.Post("/groups", s.CreateGroup)
@@ -128,6 +140,8 @@ func NewServer(cfg ServerConfig) *Server {
 		// Settings
 		r.Get("/settings", s.GetSettings)
 		r.Put("/settings", s.UpdateSettings)
+		r.Get("/group-config", s.GetGroupConfig)
+		r.Put("/group-config", s.UpdateGroupConfig)
 	})
 
 	// SPA catch-all (registered last so API routes take priority)
@@ -136,13 +150,62 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 
 	s.Router = r
-	return s
+	return s, nil
 }
 
-func (s *Server) UploadsDir() string   { return s.Config.UploadsDir }
-func (s *Server) ModelsDir() string    { return s.Config.ModelsDir }
+func (s *Server) UploadsDir() string { return filepath.Join(s.Config.DatabaseDir, "uploads") }
+func (s *Server) ModelsDir() string  { return filepath.Join(s.Config.DatabaseDir, "models") }
+func (s *Server) GroupConfigPath() string {
+	return filepath.Join(s.Config.DatabaseDir, "groupconfig.json")
+}
 func (s *Server) SettingsPath() string { return s.Config.SettingsPath }
 func (s *Server) FrontendDir() string  { return s.Config.FrontendDir }
+
+func openLibrary(root string) (*sql.DB, error) {
+	if !filepath.IsAbs(root) {
+		return nil, fmt.Errorf("database directory must be absolute")
+	}
+	for _, dir := range []string{"uploads", filepath.Join("models", "default"), filepath.Join("models", "user_model")} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := groupconfig.Load(filepath.Join(root, "groupconfig.json")); err != nil {
+		return nil, err
+	}
+	return database.Open(filepath.Join(root, "gallery.db"))
+}
+
+// A settings update may replace the entire library. Wait for in-flight uploads,
+// model downloads, and file responses before changing any path or connection.
+func (s *Server) withLibrary(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		// Illustration IDs can be reused by a different library. A conditional
+		// file request must never reuse bytes belonging to the previous library.
+		r.Header.Del("If-Modified-Since")
+		r.Header.Del("If-None-Match")
+		if r.Method == http.MethodPut && strings.TrimSuffix(r.URL.Path, "/") == "/api/settings" {
+			s.libraryMu.Lock()
+			defer s.libraryMu.Unlock()
+		} else {
+			s.libraryMu.RLock()
+			defer s.libraryMu.RUnlock()
+		}
+		w.Header().Set("X-Artifex-Library", s.libraryID)
+		if expected := r.Header.Get("X-Artifex-Library"); expected != "" && expected != s.libraryID {
+			writeError(w, http.StatusConflict, "The database directory has changed. Reload the page before continuing.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) Close() error {
+	s.libraryMu.Lock()
+	defer s.libraryMu.Unlock()
+	return s.db.Close()
+}
 
 func (s *Server) SetUploadWorkers(workers int) {
 	if workers < 1 || workers > settings.MaxUploadWorkers {

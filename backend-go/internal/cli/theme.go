@@ -53,12 +53,11 @@ func LoadTheme(path string) ThemeMode {
 }
 
 func SaveTheme(path string, mode ThemeMode) error {
-	cfg, err := settings.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.CLI.Theme = string(mode)
-	return settings.Save(path, cfg)
+	_, err := settings.Update(path, func(cfg *settings.Settings) error {
+		cfg.CLI.Theme = string(mode)
+		return nil
+	})
+	return err
 }
 
 func ParsePortAttempts(value string) (int, error) {
@@ -81,12 +80,11 @@ func SavePortAttempts(path string, attempts int) error {
 	if attempts < 1 || attempts > MaxPortAttempts {
 		return fmt.Errorf("port attempts must be between 1 and %d", MaxPortAttempts)
 	}
-	cfg, err := settings.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.CLI.PortAttempts = attempts
-	return settings.Save(path, cfg)
+	_, err := settings.Update(path, func(cfg *settings.Settings) error {
+		cfg.CLI.PortAttempts = attempts
+		return nil
+	})
+	return err
 }
 
 func ParseUploadWorkers(value string) (int, error) {
@@ -117,24 +115,22 @@ func SaveUploadWorkers(path string, workers int) error {
 	if workers < 1 || workers > MaxUploadWorkers {
 		return fmt.Errorf("upload workers must be between 1 and %d", MaxUploadWorkers)
 	}
-	cfg, err := settings.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.UploadWorkers = workers
-	return settings.Save(path, cfg)
+	_, err := settings.Update(path, func(cfg *settings.Settings) error {
+		cfg.UploadWorkers = workers
+		return nil
+	})
+	return err
 }
 
 func SaveTaggerSlots(path string, slots int) error {
 	if slots < 1 || slots > MaxTaggerSlots {
 		return fmt.Errorf("tagger slots must be between 1 and %d", MaxTaggerSlots)
 	}
-	cfg, err := settings.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.TaggerSlots = slots
-	return settings.Save(path, cfg)
+	_, err := settings.Update(path, func(cfg *settings.Settings) error {
+		cfg.TaggerSlots = slots
+		return nil
+	})
+	return err
 }
 
 func DetectDark(mode ThemeMode) bool {

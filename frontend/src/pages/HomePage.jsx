@@ -8,9 +8,8 @@ import ConfirmModal from '../components/ConfirmModal';
 import GroupOverlay from '../components/GroupOverlay';
 import SearchOverlay from '../components/SearchOverlay';
 import { listGroups, createGroup, updateGroup, deleteGroup } from '../api';
-import useQuality from '../hooks/useQuality';
 import useGroupOrder from '../hooks/useGroupOrder';
-import { removeGroupConfigScope } from '../hooks/useGroupConfig';
+import { refreshGroupSettings } from '../hooks/useGroupSettings';
 import { useLocale } from '../contexts/LocaleContext';
 
 export default function HomePage() {
@@ -23,10 +22,13 @@ export default function HomePage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deletingGroupId, setDeletingGroupId] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null); // group to rename
-  const [quality] = useQuality();
   const { t } = useLocale();
-  const { applyOrder, persistOrder } = useGroupOrder();
+  const { applyOrder, persistOrder, error: configError } = useGroupOrder();
   const deleteInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (configError) setError(t('settings.toast.saveFailed'));
+  }, [configError, t]);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -82,7 +84,7 @@ export default function HomePage() {
       setGroups((current) => current.filter((group) => group.id !== target.id));
       setDeleteConfirm(null);
       setError('');
-      void removeGroupConfigScope(target.id).catch(() => {});
+      void refreshGroupSettings().catch(() => {});
       void fetchGroups();
     } catch (err) {
       setError(err.message || t('home.error.delete'));
@@ -149,7 +151,7 @@ export default function HomePage() {
                   onDelete={setDeleteConfirm}
                   onRename={setRenameTarget}
                   onReorderRequest={handleReorder}
-                  quality={quality}
+                  quality="low"
                 />
               ))}
             </AnimatePresence>
@@ -197,6 +199,7 @@ export default function HomePage() {
       {/* Group overlay */}
       {selectedGroup && (
         <GroupOverlay
+          key={selectedGroup.id}
           group={selectedGroup}
           onClose={() => setSelectedGroup(null)}
           onGroupUpdated={fetchGroups}

@@ -48,6 +48,7 @@ export default function ColorGroupBoard({
   matchOrder,
   manualAssignments,
   onAssign,
+  onRenameGroup,
   onDownload,
   onDelete,
   onUpdateTags,
@@ -100,6 +101,7 @@ export default function ColorGroupBoard({
     dropTarget: controller.dropTarget,
     freeRowLimit: controller.freeRowLimit,
     onFreeRowLimitChange: controller.setFreeRowLimit,
+    onRenameGroup,
     onKeyboardSelect: controller.handleKeyboardSelect,
   };
 

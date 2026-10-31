@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	"artifex-backend/internal/database"
 	"artifex-backend/internal/metadata"
 	"artifex-backend/internal/models"
 	"artifex-backend/internal/settings"
@@ -48,7 +47,7 @@ func (s *Server) ListIllustrations(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0, 0, 100000)
 	limit := queryInt(r, "limit", 50, 1, 100000)
 
-	db := database.GetDB()
+	db := s.db
 
 	var groupName string
 	if err := db.QueryRow("SELECT name FROM groups WHERE id = ?", groupID).Scan(&groupName); err == sql.ErrNoRows {
@@ -97,7 +96,7 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 
 	var groupName string
 	if err := db.QueryRow("SELECT name FROM groups WHERE id = ?", groupID).Scan(&groupName); err == sql.ErrNoRows {
@@ -130,7 +129,11 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentSettings, _ := settings.Load(s.SettingsPath())
+	currentSettings, err := settings.Load(s.SettingsPath())
+	if err != nil {
+		writeError(w, 500, "Failed to load settings")
+		return
+	}
 	autoTagEnabled := currentSettings.AutoTag && !skipAutoTag
 	if autoTagEnabled && !tagger.IsTaggerReady() {
 		writeError(w, 409, "AI tagging model is incomplete or unavailable. Download it again before uploading.")
@@ -186,7 +189,7 @@ func (s *Server) UploadIllustrations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteIllustration(illID int) (bool, error) {
-	db := database.GetDB()
+	db := s.db
 	tx, err := db.Begin()
 	if err != nil {
 		return false, err
@@ -412,7 +415,7 @@ func (s *Server) commitPreparedUpload(
 	s.uploadCommitMu.Lock()
 	defer s.uploadCommitMu.Unlock()
 
-	db := database.GetDB()
+	db := s.db
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, uploadAdded, fmt.Errorf("failed to start upload: %w", err)
@@ -534,7 +537,7 @@ func (s *Server) GetIllustration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	row := db.QueryRow(`
 		SELECT i.*, g.name AS group_name
 		FROM illustrations i
@@ -565,7 +568,7 @@ func (s *Server) UpdateIllustration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 
 	// Verify exists
 	row := db.QueryRow(`
@@ -619,7 +622,7 @@ func (s *Server) UpdateIllustrationTags(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 400, "Operation must be add or remove")
 		return
 	}
-	db := database.GetDB()
+	db := s.db
 	tx, err := db.Begin()
 	if err != nil {
 		writeError(w, 500, "Failed to start tag update")
@@ -703,7 +706,7 @@ func (s *Server) ServeIllustrationFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	var filename string
 	var gID int
 	var mimeType, origFilename string
@@ -752,7 +755,7 @@ func (s *Server) ServeIllustrationThumbnail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	var filename string
 	var groupID int
 	var mimeType string
@@ -837,7 +840,7 @@ func (s *Server) RetagIllustrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	resp := models.RetagResult{
 		Updated: make([]models.IllustrationResponse, 0),
 		Failed:  make([]models.UploadConflictItem, 0),
@@ -916,7 +919,7 @@ func (s *Server) GetIllustrationMetadata(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	var extData sql.NullString
 	var filename string
 	var groupID int

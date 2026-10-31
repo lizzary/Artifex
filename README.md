@@ -42,7 +42,7 @@ release or the optional tagging model.
   editable tags, batch re-tag/download/delete, configurable download names, and
   a keyboard-friendly lightbox with slideshow playback.
 - **Local, portable storage** — SQLite, settings, models, originals, and
-  thumbnails live beside the application unless you choose custom paths.
+  thumbnails live beside the application unless you select a database directory in Settings.
 
 ## Quick start
 
@@ -103,6 +103,7 @@ as the library changes.
 
 | Action | Result |
 | --- | --- |
+| Click a color-group title | Rename it; click elsewhere to save |
 | Click a card | Select it |
 | `Ctrl` / `Cmd` + click | Add or remove one card from the selection |
 | `Shift` + click | Select a range |
@@ -325,27 +326,38 @@ Official release archives contain ONNX Runtime but **not** the tagging model.
 
 ## Settings and persistence
 
-Server-side `settings.json` stores:
+`config.toml` beside the executable stores project settings: the selected database
+directory, automatic tagging, GPU choice, active model, duplicate-name policy,
+worker limits, download naming, board renderer, Other row limit, and terminal
+settings. Only interface language and light/dark theme use browser storage.
 
-- automatic tagging, GPU choice, and active model;
-- duplicate-name policy;
-- gallery order;
-- color-group sets, rules, priorities, and manual assignments;
-- terminal theme and port-attempt limit.
+Open **Settings → General → Database directory** and enter an absolute folder
+path on the computer running Artifex. **Save and load** opens that folder's library
+and reloads the page. An empty folder starts a new library; switching back restores
+the previous library. Files are not moved between directories. The executable's
+directory is the default database directory.
 
-Browser-local preferences store language, light/dark theme, thumbnail quality,
-card size, original-ratio mode, color-group view state, download naming format,
-slideshow interval, board renderer, and the **Other** row limit.
+Each database directory contains `gallery.db`, `uploads/`, `models/`, and
+`groupconfig.json`. The latter stores gallery order and independent settings for
+each gallery: sort field and direction, image quality, card size, original aspect
+ratio, color grouping, page size, color-group sets/rules, and manual assignments.
+New galleries start with empty color groups. Missing or invalid color configurations
+are treated as empty. Color-group controls are available even in empty galleries.
 
-By default, the application creates this data beside the executable:
+Gallery defaults remain default/newest descending order, low image quality, card
+size 3, square crops, no color grouping, and 50 images per page. Current page,
+slideshow interval, and search view settings are temporary.
 
 ```text
 artifex-directory/
 ├── artifex[.exe]
-├── frontend/                 # shipped web application; keep beside the binary
-├── onnxruntime.*             # platform runtime library shipped in releases
-├── gallery.db                # SQLite database
-├── settings.json             # created after settings are saved
+├── config.toml               # project settings, including database_dir
+├── frontend/                 # shipped web application
+└── onnxruntime.*             # shipped platform runtime library
+
+selected-database-directory/
+├── gallery.db
+├── groupconfig.json          # gallery preferences and color configurations
 ├── models/
 │   ├── default/
 │   └── user_model/
@@ -479,9 +491,6 @@ CGO_ENABLED=1 go test ./...
 | --- | --- | --- |
 | `-host` | `127.0.0.1` | Listen address |
 | `-port` | `8000` | First port to try |
-| `-db` | `<base>/gallery.db` | SQLite database path |
-| `-uploads` | `<base>/uploads` | Original and thumbnail storage |
-| `-models` | `<base>/models` | Default and custom model storage |
 | `-frontend` | auto-detected | Built frontend directory |
 | `-cli-theme` | saved setting | `auto`, `dark`, or `light` terminal theme |
 | `-no-ui` | `false` | Disable the interactive terminal interface |

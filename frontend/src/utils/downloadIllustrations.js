@@ -1,4 +1,4 @@
-import { backendUrl } from '../api/url';
+import { fetchLibrary } from '../api/library';
 import { resolveFilename } from '../hooks/useDownloadConfig';
 
 function triggerDownload(blob, filename) {
@@ -19,7 +19,7 @@ export async function downloadIllustrations(illustrations, namingFormat) {
 
   for (const illustration of illustrations || []) {
     try {
-      const response = await fetch(backendUrl(illustration.file_url));
+      const response = await fetchLibrary(illustration.file_url);
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
       const filename = resolveFilename(namingFormat, illustration);
       triggerDownload(await response.blob(), filename || illustration.original_filename);

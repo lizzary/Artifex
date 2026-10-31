@@ -7,4 +7,5 @@
 /backend-go/gallery.db
 /backend-go/gallery.db-shm
 /backend-go/gallery.db-wal
-/backend-go/settings.json
+/backend-go/config.toml
+/backend-go/groupconfig.json

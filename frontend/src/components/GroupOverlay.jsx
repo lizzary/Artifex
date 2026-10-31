@@ -5,6 +5,7 @@ import {
   Monitor, Palette, Ratio, Settings, Tag, Trash2, Upload, X,
 } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
+import useGroupViewSetting from '../hooks/useGroupSettings';
 import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize';
 import useOriginalRatio from '../hooks/useOriginalRatio';
 import useDownloadConfig from '../hooks/useDownloadConfig';
@@ -59,22 +60,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [uploadSummary, setUploadSummary] = useState(null); // { added, skipped, overwritten, failed }
   const [conflictPolicy, setConflictPolicy] = useState('save_all');
   const [uploadWorkers, setUploadWorkers] = useState(4);
-  const [sortBy, setSortBy] = useState('');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [groupBy, setGroupBy] = useGroupBy();
+  const [sortBy, setSortBy] = useGroupViewSetting(group.id, 'sort_by');
+  const [sortOrder, setSortOrder] = useGroupViewSetting(group.id, 'sort_order');
+  const [groupBy, setGroupBy] = useGroupBy(group.id);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
   const [showColorBoard, setShowColorBoard] = useState(false);
   const fileInputRef = useRef(null);
   const { addToast } = useToast();
-  const [quality, setQuality] = useQuality();
-  const [cardSize, setCardSize, cardSizeGrid] = useCardSize();
-  const [preserveAspectRatio, setPreserveAspectRatio] = useOriginalRatio();
+  const [quality, setQuality] = useQuality(group.id);
+  const [cardSize, setCardSize, cardSizeGrid] = useCardSize(group.id);
+  const [preserveAspectRatio, setPreserveAspectRatio] = useOriginalRatio(group.id);
   const { format } = useDownloadConfig();
   const { t } = useLocale();
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useGroupViewSetting(group.id, 'page_size');
   const [totalCount, setTotalCount] = useState(0);
 
   const PAGE_SIZE_OPTIONS = useMemo(() => [
@@ -104,9 +105,12 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     { value: 'original', label: t('quality.original') },
   ], [t]);
 
-  const groupScope = `group_${group.id}`;
-  const activeConfig = useGroupConfig(groupScope);
+  const activeConfig = useGroupConfig(group.id);
   const { removeManualGroupIds, setManualGroupIds } = activeConfig;
+
+  useEffect(() => {
+    if (activeConfig.error) addToast(t('settings.toast.saveFailed'), 'error');
+  }, [activeConfig.error, addToast, t]);
 
   const fetchIllustrations = useCallback(async () => {
     try {
@@ -686,27 +690,25 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             )}
 
             {/* Group By controls */}
-            {illustrations.length > 1 && (
-              <SettingsSelect
-                variant="toolbar"
-                icon={Layers}
-                label={t('groupOverlay.group.label')}
-                options={translatedGroupOptions}
-                value={groupBy}
-                onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
-                rightElement={
-                  groupBy !== 'none' ? (
-                    <button
-                      onClick={() => setShowGroupConfig(true)}
-                      className="p-2 rounded-lg bg-surface-tertiary border border-edge-secondary hover:border-edge-primary text-content-tertiary hover:text-content-primary transition-all"
-                      title={t('groupOverlay.group.configMixed')}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null
-                }
-              />
-            )}
+            <SettingsSelect
+              variant="toolbar"
+              icon={Layers}
+              label={t('groupOverlay.group.label')}
+              options={translatedGroupOptions}
+              value={groupBy}
+              onChange={(v) => { setGroupBy(v); setCollapsedGroups(new Set()); }}
+              rightElement={
+                groupBy !== 'none' ? (
+                  <button
+                    onClick={() => setShowGroupConfig(true)}
+                    className="p-2 rounded-lg bg-surface-tertiary border border-edge-secondary hover:border-edge-primary text-content-tertiary hover:text-content-primary transition-all"
+                    title={t('groupOverlay.group.configMixed')}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                ) : null
+              }
+            />
 
             {/* Quality selector */}
             <SettingsSelect
@@ -1022,6 +1024,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             matchOrder={activeConfig.matchOrder}
             manualAssignments={activeConfig.manualAssignments}
             onAssign={setManualGroupIds}
+            onRenameGroup={activeConfig.renamePair}
             onDownload={handleDownloadIllustrations}
             onDelete={handleDeleteIllustrations}
             onUpdateTags={handleUpdateIllustrationTags}

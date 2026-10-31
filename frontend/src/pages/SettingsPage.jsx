@@ -7,6 +7,11 @@ import ConfirmModal from '../components/ConfirmModal';
 import NamingFormatInput from '../components/NamingFormatInput';
 import SettingsSelect from '../components/SettingsSelect';
 import useDownloadConfig from '../hooks/useDownloadConfig';
+import { flushGroupSettings } from '../hooks/useGroupSettings';
+import {
+  loadProjectSettings as getSettings,
+  saveProjectSettings as updateSettings,
+} from '../hooks/useProjectSettings';
 import useColorBoardRendererPreference, {
   COLOR_BOARD_RENDERER_OPTIONS,
 } from '../utils/colorBoardRendererPreference';
@@ -14,9 +19,7 @@ import {
   deleteDefaultModel,
   deleteModel,
   downloadModel,
-  getSettings,
   listModels,
-  updateSettings,
   uploadModel,
 } from '../api';
 
@@ -42,7 +45,8 @@ export default function SettingsPage() {
   const [boardRenderer, setBoardRenderer] = useColorBoardRendererPreference();
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [formatSaved, setFormatSaved] = useState(false);
+  const [databaseDirectory, setDatabaseDirectory] = useState('');
+  const [switchingDatabase, setSwitchingDatabase] = useState(false);
 
   // Model management state
   const [models, setModels] = useState([]);
@@ -68,10 +72,13 @@ export default function SettingsPage() {
 
   useEffect(() => {
     getSettings()
-      .then(setSettings)
-      .catch(() => {});
+      .then((loaded) => {
+        setSettings(loaded);
+        setDatabaseDirectory(loaded.database_dir);
+      })
+      .catch(() => addToast(t('settings.toast.loadFailed'), 'error'));
     fetchModels();
-  }, [fetchModels]);
+  }, [addToast, fetchModels, t]);
 
   // Click-outside for model dropdown
   useEffect(() => {
@@ -86,11 +93,28 @@ export default function SettingsPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [modelDropdownOpen]);
 
-  const handleFormatBlur = () => {
-    if (formatSaved) return;
-    addToast(t('settings.toast.saved'), 'success');
-    setFormatSaved(true);
-    setTimeout(() => setFormatSaved(false), 3000);
+  const savePreference = async (setter, value) => {
+    try {
+      await setter(value);
+      addToast(t('settings.toast.saved'), 'success');
+    } catch {
+      addToast(t('settings.toast.saveFailed'), 'error');
+    }
+  };
+
+  const handleDatabaseSwitch = async (event) => {
+    event.preventDefault();
+    const directory = databaseDirectory.trim();
+    if (!directory || directory === settings?.database_dir) return;
+    setSwitchingDatabase(true);
+    try {
+      await flushGroupSettings();
+      await updateSettings({ database_dir: directory });
+      window.location.reload();
+    } catch (error) {
+      addToast(error.message || t('settings.toast.saveFailed'), 'error');
+      setSwitchingDatabase(false);
+    }
   };
 
   const handleBackendSettingChange = async (key, value) => {
@@ -199,7 +223,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+      <main className="max-w-2xl mx-auto px-4 py-8 space-y-8" inert={switchingDatabase}>
         {/* General */}
         <section>
           <h2 className="text-sm font-semibold text-content-secondary uppercase tracking-wide mb-4 flex items-center gap-2">
@@ -207,6 +231,33 @@ export default function SettingsPage() {
             {t('settings.general.heading')}
           </h2>
           <div className="bg-surface-secondary rounded-2xl border border-edge-secondary divide-y divide-edge-subtle">
+            <form onSubmit={handleDatabaseSwitch} className="px-5 py-4">
+              <label htmlFor="database-directory" className="text-sm font-medium text-content-primary">
+                {t('settings.general.databaseDirectory')}
+              </label>
+              <p id="database-directory-help" className="text-xs text-content-muted mt-1 mb-3">
+                {t('settings.general.databaseDirectoryDesc')}
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  id="database-directory"
+                  type="text"
+                  value={databaseDirectory}
+                  onChange={(event) => setDatabaseDirectory(event.target.value)}
+                  disabled={!settings || switchingDatabase}
+                  aria-describedby="database-directory-help"
+                  placeholder="D:\\Artifex"
+                  className="min-w-0 flex-1 px-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm focus:outline-none focus:border-accent"
+                />
+                <button
+                  type="submit"
+                  disabled={!settings || saving || uploading || downloading || resetting || switchingDatabase || !databaseDirectory.trim() || databaseDirectory.trim() === settings.database_dir}
+                  className="px-3 py-2 rounded-lg bg-accent text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t(switchingDatabase ? 'settings.general.databaseSwitching' : 'settings.general.databaseSwitch')}
+                </button>
+              </div>
+            </form>
             <div className="flex items-center justify-between px-5 py-4">
               <div className="flex items-center gap-3">
                 <Globe className="w-5 h-5 text-content-tertiary" />
@@ -230,10 +281,7 @@ export default function SettingsPage() {
               </div>
               <SettingsSelect
                 value={boardRenderer}
-                onChange={(value) => {
-                  setBoardRenderer(value);
-                  addToast(t('settings.toast.saved'), 'success');
-                }}
+                onChange={(value) => savePreference(setBoardRenderer, value)}
                 ariaLabel={t('settings.general.boardRenderer')}
                 minWidth={180}
                 options={COLOR_BOARD_RENDERER_SELECT_OPTIONS.map((option) => ({
@@ -496,8 +544,7 @@ export default function SettingsPage() {
               </div>
               <NamingFormatInput
                 value={format}
-                onChange={setFormat}
-                onBlur={handleFormatBlur}
+                onChange={(value) => savePreference(setFormat, value)}
                 placeholder={t('settings.download.namingFormatPlaceholder')}
               />
             </div>

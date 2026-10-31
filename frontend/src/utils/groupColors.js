@@ -14,8 +14,12 @@ export function toHexColor(value, fallback = DEFAULT_HEX) {
   const longHex = text.match(/^#([0-9a-f]{6})$/i);
   if (longHex) return `#${longHex[1].toLowerCase()}`;
 
-  const rgb = text.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
-  if (rgb) return `#${byteToHex(rgb[1])}${byteToHex(rgb[2])}${byteToHex(rgb[3])}`;
+  const rgb = text.match(/^(rgb|rgba)\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(\d+(?:\.\d+)?|\.\d+))?\s*\)$/i);
+  if (rgb && (rgb[1].toLowerCase() === 'rgba') === Boolean(rgb[5])
+    && rgb.slice(2, 5).every((channel) => Number(channel) <= 255)
+    && (rgb[5] === undefined || Number(rgb[5]) <= 1)) {
+    return `#${byteToHex(rgb[2])}${byteToHex(rgb[3])}${byteToHex(rgb[4])}`;
+  }
 
   return fallback;
 }

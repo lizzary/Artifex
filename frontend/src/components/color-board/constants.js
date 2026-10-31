@@ -1,5 +1,3 @@
-export const FREE_ROW_LIMIT_STORAGE_KEY = 'color-board-free-row-limit';
-
 export const PREVIEW_MEDIA_WIDTH = 240;
 export const PREVIEW_MEDIA_MIN_HEIGHT = 80;
 export const PREVIEW_MEDIA_MAX_HEIGHT = 360;

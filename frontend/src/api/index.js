@@ -1,9 +1,8 @@
-import { backendUrl } from './url';
+import { fetchLibrary } from './library';
 import { invalidateTagPromptSuggestions } from '../utils/tagPromptCache';
 
 async function request(path, options = {}) {
-  const url = backendUrl(path);
-  const res = await fetch(url, options);
+  const res = await fetchLibrary(path, options);
   if (res.status === 204) return null;
   if (!res.ok) {
     const detail = await res.json().catch(() => ({ detail: res.statusText }));
@@ -196,6 +195,18 @@ export function getSettings() {
 
 export function updateSettings(data) {
   return request('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function getGroupConfig() {
+  return request('/api/group-config');
+}
+
+export function updateGroupConfig(data) {
+  return request('/api/group-config', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),

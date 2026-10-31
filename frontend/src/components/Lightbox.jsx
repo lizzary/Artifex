@@ -10,7 +10,6 @@ import useIllustrationMetadata from '../hooks/useIllustrationMetadata';
 import { downloadIllustrations } from '../utils/downloadIllustrations';
 import { useToast } from './Toast';
 
-const SLIDESHOW_INTERVAL_KEY = 'gallery_slideshow_interval';
 const SLIDESHOW_INTERVAL_MIN = 1;
 const SLIDESHOW_INTERVAL_MAX = 60;
 const SLIDESHOW_INTERVAL_DEFAULT = 3;
@@ -19,15 +18,6 @@ const SLIDESHOW_PRESETS = [2, 3, 5, 10];
 function clampInterval(n) {
   if (!Number.isFinite(n)) return SLIDESHOW_INTERVAL_DEFAULT;
   return Math.max(SLIDESHOW_INTERVAL_MIN, Math.min(SLIDESHOW_INTERVAL_MAX, Math.round(n)));
-}
-
-function readSlideshowInterval() {
-  try {
-    const stored = Number(localStorage.getItem(SLIDESHOW_INTERVAL_KEY));
-    return stored ? clampInterval(stored) : SLIDESHOW_INTERVAL_DEFAULT;
-  } catch {
-    return SLIDESHOW_INTERVAL_DEFAULT;
-  }
 }
 
 export default function Lightbox({ illustrations, initialIndex, onClose, onDelete, onSetCover, onUpdate }) {
@@ -71,7 +61,7 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
 
   // ── Slideshow ───────────────────────────────────────────
   const [slideshowOn, setSlideshowOn] = useState(false);
-  const [intervalSec, setIntervalSec] = useState(readSlideshowInterval);
+  const [intervalSec, setIntervalSec] = useState(SLIDESHOW_INTERVAL_DEFAULT);
   const [slideshowSettingsOpen, setSlideshowSettingsOpen] = useState(false);
   const slideshowRef = useRef(null);
   const currentIllustration = illustrations[currentIndex];
@@ -142,11 +132,6 @@ export default function Lightbox({ illustrations, initialIndex, onClose, onDelet
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, navigate, total]);
-
-  // Persist interval
-  useEffect(() => {
-    try { localStorage.setItem(SLIDESHOW_INTERVAL_KEY, String(intervalSec)); } catch {}
-  }, [intervalSec]);
 
   // Auto-advance timer
   useEffect(() => {

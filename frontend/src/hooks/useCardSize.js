@@ -1,6 +1,4 @@
-import { useState, useCallback } from 'react';
-
-const STORAGE_KEY = 'gallery-card-size';
+import useGroupViewSetting from './useGroupSettings';
 const DEFAULT_SIZE = 3; // medium
 
 const GRID_CLASSES = {
@@ -18,21 +16,8 @@ export function getCardSizeGrid(size) {
 export const CARD_SIZE_MIN = 1;
 export const CARD_SIZE_MAX = 5;
 
-export default function useCardSize() {
-  const [size, setSizeState] = useState(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const parsed = parseInt(stored, 10);
-      if (parsed >= CARD_SIZE_MIN && parsed <= CARD_SIZE_MAX) return parsed;
-    } catch {}
-    return DEFAULT_SIZE;
-  });
-
-  const setSize = useCallback((val) => {
-    const clamped = Math.max(CARD_SIZE_MIN, Math.min(CARD_SIZE_MAX, Number(val) || DEFAULT_SIZE));
-    setSizeState(clamped);
-    try { localStorage.setItem(STORAGE_KEY, String(clamped)); } catch {}
-  }, []);
+export default function useCardSize(groupId) {
+  const [size, setSize] = useGroupViewSetting(groupId, 'card_size');
 
   return [size, setSize, getCardSizeGrid(size)];
 }

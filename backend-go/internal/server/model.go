@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"artifex-backend/internal/models"
+	"artifex-backend/internal/settings"
 	"artifex-backend/internal/tagger"
 )
 
@@ -169,6 +170,13 @@ func (s *Server) DeleteModel(w http.ResponseWriter, r *http.Request) {
 
 	// If the deleted model was active, reset to default
 	if tagger.GetActiveModel() == modelName {
+		if _, err := settings.Update(s.SettingsPath(), func(st *settings.Settings) error {
+			st.ActiveModel = ""
+			return nil
+		}); err != nil {
+			writeError(w, 500, "Model deleted, but failed to save active model setting")
+			return
+		}
 		tagger.SetActiveModel("")
 		if err := tagger.LoadTagger(s.ModelsDir()); err != nil {
 			s.logger().Warn("tagger", "reload after model deletion failed: %v", err)

@@ -15,8 +15,8 @@ import {
   WORLD_MARGIN,
 } from '../../utils/colorBoardLayout';
 import { clamp, getAspectFitPreviewHeight } from '../../utils/illustrationPreview';
+import useProjectPreference from '../../hooks/useProjectSettings';
 import {
-  FREE_ROW_LIMIT_STORAGE_KEY,
   PREVIEW_CHROME_HEIGHT,
   PREVIEW_MEDIA_MAX_HEIGHT,
   PREVIEW_MEDIA_MIN_HEIGHT,
@@ -24,19 +24,6 @@ import {
 } from './constants';
 
 const INITIAL_VIEW = Object.freeze({ x: 0, y: 0, scale: 0.72 });
-
-function readFreeRowLimit() {
-  try {
-    const stored = localStorage.getItem(FREE_ROW_LIMIT_STORAGE_KEY);
-    if (stored != null) {
-      const parsed = Number(stored);
-      if (Number.isFinite(parsed)) {
-        return clamp(Math.round(parsed), FREE_ROW_LIMIT_MIN, FREE_ROW_LIMIT_MAX);
-      }
-    }
-  } catch {}
-  return FREE_ROW_LIMIT_DEFAULT;
-}
 
 function requestFrame(callback) {
   if (typeof window.requestAnimationFrame === 'function') {
@@ -118,19 +105,22 @@ export default function useColorBoardController({
   const [dropTarget, setDropTarget] = useState(null);
   const [lastAction, setLastAction] = useState('');
   const [tagPanelOpen, setTagPanelOpen] = useState(false);
-  const [freeRowLimit, setFreeRowLimitState] = useState(readFreeRowLimit);
+  const [freeRowLimit, saveFreeRowLimit] = useProjectPreference('board_free_row_limit', FREE_ROW_LIMIT_DEFAULT);
 
   previewRef.current = preview;
 
-  const setFreeRowLimit = useCallback((value) => {
+  const setFreeRowLimit = useCallback(async (value) => {
     const nextValue = clamp(
       Math.round(Number(value) || FREE_ROW_LIMIT_DEFAULT),
       FREE_ROW_LIMIT_MIN,
       FREE_ROW_LIMIT_MAX,
     );
-    setFreeRowLimitState(nextValue);
-    try { localStorage.setItem(FREE_ROW_LIMIT_STORAGE_KEY, String(nextValue)); } catch {}
-  }, []);
+    try {
+      await saveFreeRowLimit(nextValue);
+    } catch {
+      setLastAction(t('settings.toast.saveFailed'));
+    }
+  }, [saveFreeRowLimit, t]);
 
   const layout = useMemo(() => buildColorBoardLayout(
     illustrations,

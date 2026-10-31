@@ -6,16 +6,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
-	"artifex-backend/internal/database"
+	"artifex-backend/internal/groupconfig"
 	"artifex-backend/internal/models"
 )
 
 // ── List Groups ──────────────────────────────────────────────────────────
 
 func (s *Server) ListGroups(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDB()
+	db := s.db
 	rows, err := db.Query(`
 		SELECT g.*, COUNT(i.id) AS illustration_count
 		FROM groups g
@@ -60,7 +61,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	result, err := db.Exec("INSERT INTO groups (name) VALUES (?)", body.Name)
 	if err != nil {
 		writeError(w, 500, "Failed to create group")
@@ -85,7 +86,7 @@ func (s *Server) GetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	var grp models.GroupResponse
 	var coverID sql.NullInt64
 	err = db.QueryRow(`
@@ -129,7 +130,7 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 
 	// Verify group exists
 	var exists bool
@@ -189,7 +190,7 @@ func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDB()
+	db := s.db
 	result, err := db.Exec("DELETE FROM groups WHERE id = ?", groupID)
 	if err != nil {
 		writeError(w, 500, "Failed to delete group")
@@ -205,6 +206,17 @@ func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.groupConfigMu.Lock()
+	cfg, configErr := groupconfig.Load(s.GroupConfigPath())
+	if configErr == nil {
+		delete(cfg.Groups, strconv.Itoa(groupID))
+		cfg.GroupOrder = slices.DeleteFunc(cfg.GroupOrder, func(id int) bool { return id == groupID })
+		configErr = groupconfig.Save(s.GroupConfigPath(), cfg)
+	}
+	s.groupConfigMu.Unlock()
+	if configErr != nil {
+		s.logger().Warn("groups", "remove group configuration: %v", configErr)
+	}
 	w.WriteHeader(204)
 
 	// The database row is the source of truth and is already gone. Recursive

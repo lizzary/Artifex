@@ -1,25 +1,8 @@
 import { useCallback, useState } from 'react';
+import useGroupViewSetting from './useGroupSettings';
 
-const GROUP_BY_STORAGE_KEY = 'gallery-group-by';
-
-function readStoredGroupBy() {
-  try {
-    return localStorage.getItem(GROUP_BY_STORAGE_KEY) === 'mixed' ? 'mixed' : 'none';
-  } catch {
-    return 'none';
-  }
-}
-
-export function useGroupBy() {
-  const [groupBy, setGroupByState] = useState(readStoredGroupBy);
-
-  const setGroupBy = useCallback((value) => {
-    const next = value === 'mixed' ? 'mixed' : 'none';
-    setGroupByState(next);
-    try { localStorage.setItem(GROUP_BY_STORAGE_KEY, next); } catch { /* storage unavailable */ }
-  }, []);
-
-  return [groupBy, setGroupBy];
+export function useGroupBy(groupId) {
+  return useGroupViewSetting(groupId, 'group_by');
 }
 
 export function useIllustrationSelection(illustrations, onOpen) {

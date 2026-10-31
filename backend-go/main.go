@@ -21,7 +21,6 @@ import (
 
 	"artifex-backend/internal/applog"
 	"artifex-backend/internal/cli"
-	"artifex-backend/internal/database"
 	"artifex-backend/internal/server"
 	"artifex-backend/internal/settings"
 	"artifex-backend/internal/tagger"
@@ -35,10 +34,6 @@ type options struct {
 	host         string
 	port         int
 	portAttempts int
-	baseDir      string
-	dbPath       string
-	uploadsDir   string
-	modelsDir    string
 	frontendDir  string
 	settingsPath string
 	cliTheme     string
@@ -125,9 +120,6 @@ func run() error {
 func parseOptions() options {
 	host := flag.String("host", "127.0.0.1", "Host to listen on")
 	port := flag.Int("port", 8000, "Port to listen on")
-	dbPath := flag.String("db", "", "Path to SQLite database (default: <basedir>/gallery.db)")
-	uploadsDir := flag.String("uploads", "", "Path to uploads directory (default: <basedir>/uploads)")
-	modelsDir := flag.String("models", "", "Path to models directory (default: <basedir>/models)")
 	frontendDir := flag.String("frontend", "", "Path to frontend build directory")
 	cliTheme := flag.String("cli-theme", "", "Terminal appearance: auto, dark, or light")
 	noUI := flag.Bool("no-ui", false, "Disable the interactive terminal interface")
@@ -136,23 +128,6 @@ func parseOptions() options {
 	baseDir := "."
 	if execPath, err := os.Executable(); err == nil {
 		baseDir = filepath.Dir(execPath)
-	}
-	if wd, err := os.Getwd(); err == nil {
-		_, settingsErr := os.Stat(filepath.Join(wd, "settings.json"))
-		_, moduleErr := os.Stat(filepath.Join(wd, "go.mod"))
-		if settingsErr == nil || moduleErr == nil {
-			baseDir = wd
-		}
-	}
-
-	if *dbPath == "" {
-		*dbPath = filepath.Join(baseDir, "gallery.db")
-	}
-	if *uploadsDir == "" {
-		*uploadsDir = filepath.Join(baseDir, "uploads")
-	}
-	if *modelsDir == "" {
-		*modelsDir = filepath.Join(baseDir, "models")
 	}
 	if *frontendDir == "" {
 		frontendCandidates := []string{
@@ -176,14 +151,10 @@ func parseOptions() options {
 		}
 	}
 
-	settingsPath := filepath.Join(baseDir, "settings.json")
+	settingsPath := filepath.Join(baseDir, "config.toml")
 	return options{
 		host:         *host,
 		port:         *port,
-		baseDir:      baseDir,
-		dbPath:       *dbPath,
-		uploadsDir:   *uploadsDir,
-		modelsDir:    *modelsDir,
 		frontendDir:  *frontendDir,
 		settingsPath: settingsPath,
 		cliTheme:     *cliTheme,
@@ -192,23 +163,13 @@ func parseOptions() options {
 }
 
 func (rt *appRuntime) bootstrap() cli.BootResult {
-	result := cli.BootResult{
-		DatabasePath: rt.opts.dbPath,
-		TaggerStatus: "disabled",
-	}
-
-	rt.log.Info("startup", "initializing database")
-	if err := database.InitDB(rt.opts.dbPath); err != nil {
-		result.Err = fmt.Errorf("initialize database: %w", err)
-		rt.log.Error("database", "%v", result.Err)
-		return result
-	}
-	rt.log.Info("database", "ready at %s", rt.opts.dbPath)
-
+	result := cli.BootResult{TaggerStatus: "disabled"}
 	st, err := settings.Load(rt.opts.settingsPath)
 	if err != nil {
-		rt.log.Warn("settings", "could not load settings: %v", err)
+		result.Err = fmt.Errorf("load settings: %w", err)
+		return result
 	}
+	result.DatabasePath = filepath.Join(st.DatabaseDir, "gallery.db")
 	rt.mu.Lock()
 	configuredUploadWorkers := rt.uploadWorkers
 	configuredTaggerSlots := rt.taggerSlots
@@ -221,7 +182,7 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 
 	if st.AutoTag {
 		rt.log.Info("startup", "loading tagger model")
-		if err := tagger.LoadTagger(rt.opts.modelsDir); err != nil {
+		if err := tagger.LoadTagger(filepath.Join(st.DatabaseDir, "models")); err != nil {
 			result.TaggerStatus = "unavailable"
 			result.TaggerWarning = true
 			rt.log.Warn("tagger", "%v; auto-tagging will be skipped", err)
@@ -238,14 +199,18 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 		rt.log.Warn("frontend", "build files not found at %s", rt.opts.frontendDir)
 	}
 
-	srv := server.NewServer(server.ServerConfig{
-		UploadsDir:    rt.opts.uploadsDir,
-		ModelsDir:     rt.opts.modelsDir,
+	srv, err := server.NewServer(server.ServerConfig{
+		DatabaseDir:   st.DatabaseDir,
 		SettingsPath:  rt.opts.settingsPath,
 		FrontendDir:   rt.opts.frontendDir,
 		UploadWorkers: configuredUploadWorkers,
 		Log:           rt.log,
 	})
+	if err != nil {
+		result.Err = fmt.Errorf("initialize database: %w", err)
+		return result
+	}
+	rt.log.Info("database", "ready at %s", result.DatabasePath)
 
 	listener, selectedPort, attempts, err := listenOnAvailablePort(
 		rt.opts.host,
@@ -254,6 +219,7 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 		net.Listen,
 	)
 	if err != nil {
+		srv.Close()
 		result.Err = err
 		rt.log.Error("server", "%v", result.Err)
 		return result
@@ -402,6 +368,12 @@ func (rt *appRuntime) shutdown() error {
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown server: %w", err)
+	}
+	tagger.Unload()
+	if rt.apiServer != nil {
+		if err := rt.apiServer.Close(); err != nil {
+			return err
+		}
 	}
 	rt.log.Info("server", "stopped")
 	return nil

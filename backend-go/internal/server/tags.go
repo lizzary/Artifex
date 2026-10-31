@@ -5,14 +5,12 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-
-	"artifex-backend/internal/database"
 )
 
 // ── List Tags ────────────────────────────────────────────────────────────
 
 func (s *Server) ListTags(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDB()
+	db := s.db
 	rows, err := db.Query("SELECT tags FROM illustrations WHERE tags IS NOT NULL AND tags != ''")
 	if err != nil {
 		writeError(w, 500, "Failed to list tags")
@@ -45,7 +43,7 @@ func (s *Server) ListTags(w http.ResponseWriter, r *http.Request) {
 // ── List Prompts ─────────────────────────────────────────────────────────
 
 func (s *Server) ListPrompts(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDB()
+	db := s.db
 	rows, err := db.Query("SELECT extended_data FROM illustrations WHERE extended_data IS NOT NULL")
 	if err != nil {
 		writeError(w, 500, "Failed to list prompts")
