@@ -12,6 +12,7 @@ import { listGroups, createGroup, updateGroup, deleteGroup } from '../api';
 import useGroupOrder from '../hooks/useGroupOrder';
 import { refreshGroupSettings } from '../hooks/useGroupSettings';
 import { useLocale } from '../contexts/LocaleContext';
+import './home-reorder.css';
 
 export default function HomePage() {
   const [groups, setGroups] = useState([]);
@@ -24,9 +25,13 @@ export default function HomePage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deletingGroupId, setDeletingGroupId] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null); // group to rename
+  const [draggedGroupId, setDraggedGroupId] = useState(null);
+  const [dropPreview, setDropPreview] = useState(null);
   const { t } = useLocale();
   const { applyOrder, persistOrder, error: configError } = useGroupOrder();
   const deleteInFlightRef = useRef(false);
+  const groupGridRef = useRef(null);
+  const draggedGroupRef = useRef(null);
 
   useEffect(() => {
     if (configError) setError(t('settings.toast.saveFailed'));
@@ -45,19 +50,93 @@ export default function HomePage() {
   }, [applyOrder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleReorder = useCallback((sourceId, targetId, side) => {
-    setGroups((prev) => {
-      const src = prev.findIndex((g) => g.id === sourceId);
-      if (src === -1) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(src, 1);
-      let insertAt = next.findIndex((g) => g.id === targetId);
-      if (insertAt === -1) return prev;
-      if (side === 'after') insertAt += 1;
-      next.splice(insertAt, 0, moved);
-      persistOrder(next);
-      return next;
-    });
-  }, [persistOrder]);
+    const sourceIndex = groups.findIndex((group) => group.id === sourceId);
+    if (sourceIndex === -1) return;
+    const next = [...groups];
+    const [moved] = next.splice(sourceIndex, 1);
+    let insertAt = next.findIndex((group) => group.id === targetId);
+    if (insertAt === -1) return;
+    if (side === 'after') insertAt += 1;
+    if (insertAt === sourceIndex) return;
+    next.splice(insertAt, 0, moved);
+    setGroups(next);
+    persistOrder(next);
+  }, [groups, persistOrder]);
+
+  const finishReorderDrag = useCallback(() => {
+    draggedGroupRef.current = null;
+    setDraggedGroupId(null);
+    setDropPreview(null);
+  }, []);
+
+  useEffect(() => {
+    if (draggedGroupId === null) return undefined;
+    window.addEventListener('dragend', finishReorderDrag);
+    window.addEventListener('blur', finishReorderDrag);
+    return () => {
+      window.removeEventListener('dragend', finishReorderDrag);
+      window.removeEventListener('blur', finishReorderDrag);
+    };
+  }, [draggedGroupId, finishReorderDrag]);
+
+  function findDropPreview(event) {
+    const grid = groupGridRef.current;
+    const sourceIndex = groups.findIndex((group) => group.id === draggedGroupRef.current);
+    if (!grid || sourceIndex === -1) return null;
+    const cards = [...grid.querySelectorAll('[data-group-card-id]')].map((card) => ({
+      id: Number(card.dataset.groupCardId),
+      rect: card.getBoundingClientRect(),
+    }));
+    if (cards.length === 0) return null;
+    // Row gaps select the start of the next row. Within a row, each midpoint
+    // separates its leading and trailing insertion positions.
+    const firstInRow = cards.find(({ rect }) => event.clientY <= rect.bottom) ?? cards[cards.length - 1];
+    let closest = firstInRow;
+    let side = event.clientY < firstInRow.rect.top ? 'before' : 'after';
+    if (event.clientY >= firstInRow.rect.top && event.clientY <= firstInRow.rect.bottom) {
+      const row = cards.filter(({ rect }) => Math.abs(rect.top - firstInRow.rect.top) < 1);
+      closest = row.find(({ rect }) => event.clientX < rect.left + rect.width / 2) ?? row[row.length - 1];
+      side = event.clientX < closest.rect.left + closest.rect.width / 2 ? 'before' : 'after';
+    }
+    if (closest.id === draggedGroupRef.current) return null;
+    const targetIndex = groups.findIndex((group) => group.id === closest.id);
+    const insertAt = targetIndex - Number(sourceIndex < targetIndex) + Number(side === 'after');
+    if (insertAt === sourceIndex) return null;
+    const gridRect = grid.getBoundingClientRect();
+    const left = (side === 'before' ? closest.rect.left - 10 : closest.rect.right + 10) - gridRect.left;
+    return {
+      targetId: closest.id,
+      name: groups[targetIndex].name,
+      side,
+      position: insertAt + 1,
+      left,
+      top: closest.rect.top - gridRect.top,
+      height: closest.rect.height,
+      align: left > gridRect.width / 2 ? 'end' : 'start',
+    };
+  }
+
+  function handleGridDragOver(event) {
+    if (draggedGroupRef.current === null) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const next = findDropPreview(event);
+    setDropPreview((current) => (
+      current?.targetId === next?.targetId && current?.side === next?.side
+      && current?.left === next?.left && current?.top === next?.top
+        ? current
+        : next
+    ));
+  }
+
+  function handleGridDrop(event) {
+    const sourceId = draggedGroupRef.current;
+    if (sourceId === null) return;
+    event.preventDefault();
+    const target = findDropPreview(event);
+    if (target) handleReorder(sourceId, target.targetId, target.side);
+    finishReorderDrag();
+  }
 
   useEffect(() => {
     fetchGroups();
@@ -150,7 +229,19 @@ export default function HomePage() {
             <p className="text-sm">{t('home.empty')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+          <div
+            ref={groupGridRef}
+            className="home-group-grid relative grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5"
+            data-reordering={draggedGroupId !== null ? '' : undefined}
+            onDragOver={handleGridDragOver}
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget)) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              if (event.clientX < rect.left || event.clientX > rect.right
+                || event.clientY < rect.top || event.clientY > rect.bottom) setDropPreview(null);
+            }}
+            onDrop={handleGridDrop}
+          >
             <AnimatePresence mode="popLayout">
               {groups.map((group) => (
                 <GroupCard
@@ -159,11 +250,31 @@ export default function HomePage() {
                   onClick={setSelectedGroup}
                   onDelete={setDeleteConfirm}
                   onRename={setRenameTarget}
-                  onReorderRequest={handleReorder}
+                  onReorderDragStart={(id) => {
+                    draggedGroupRef.current = id;
+                    setDraggedGroupId(id);
+                  }}
+                  onReorderDragEnd={finishReorderDrag}
+                  dragging={draggedGroupId === group.id}
                   quality="low"
                 />
               ))}
             </AnimatePresence>
+            {dropPreview && (
+              <div
+                className="home-reorder-marker"
+                style={{ left: dropPreview.left, top: dropPreview.top, height: dropPreview.height }}
+                aria-hidden="true"
+              >
+                <div className="home-reorder-label" data-align={dropPreview.align}>
+                  <strong>{t('home.reorderPosition', { position: dropPreview.position })}</strong>
+                  <span>{t(dropPreview.side === 'before' ? 'home.reorderBefore' : 'home.reorderAfter', { name: dropPreview.name })}</span>
+                </div>
+              </div>
+            )}
+            <span className="sr-only" role="status">
+              {dropPreview && t('home.reorderPosition', { position: dropPreview.position })}
+            </span>
           </div>
         )}
       </div>

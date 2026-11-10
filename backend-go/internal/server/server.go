@@ -34,6 +34,7 @@ type ServerConfig struct {
 }
 
 const multipartMemoryLimit int64 = 32 << 20
+const databaseFilename = "gallery.db"
 
 func parseMultipartForm(w http.ResponseWriter, r *http.Request, maxBytes int64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
@@ -104,6 +105,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		r.Use(s.withLibrary)
 		// Groups
 		r.Get("/groups", s.ListGroups)
+		r.Get("/statistics", s.GetStatistics)
+		r.Get("/statistics/groups/{groupId}/storage", s.GetGroupStorage)
 		r.Post("/groups", s.CreateGroup)
 		r.Get("/groups/{groupId}", s.GetGroup)
 		r.Put("/groups/{groupId}", s.UpdateGroup)
@@ -172,7 +175,7 @@ func openLibrary(root string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	return database.Open(filepath.Join(root, "gallery.db"))
+	return database.Open(filepath.Join(root, databaseFilename))
 }
 
 // A settings update may replace the entire library. Wait for in-flight uploads,

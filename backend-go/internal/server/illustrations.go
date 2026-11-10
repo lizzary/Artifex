@@ -35,6 +35,8 @@ const (
 	maxIllustrationPixels       int64 = 100_000_000
 )
 
+var illustrationStorageDirs = [...]string{"originals", thumbnail.QualityConfigs["low"].Dir, thumbnail.QualityConfigs["normal"].Dir}
+
 // ── List Illustrations ───────────────────────────────────────────────────
 
 func (s *Server) ListIllustrations(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +217,7 @@ func (s *Server) deleteIllustration(illID int) (bool, error) {
 	}
 
 	groupDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
-	for _, sub := range []string{"originals", "thumbnails", "thumbnails_normal"} {
+	for _, sub := range illustrationStorageDirs {
 		_ = os.Remove(filepath.Join(groupDir, sub, filename))
 	}
 	return true, nil
@@ -521,7 +523,7 @@ func (s *Server) commitPreparedUpload(
 	committed = true
 
 	if outcome == uploadOverwritten {
-		for _, sub := range []string{"originals", "thumbnails", "thumbnails_normal"} {
+		for _, sub := range illustrationStorageDirs {
 			_ = os.Remove(filepath.Join(groupDir, sub, conflictFilename))
 		}
 	}
@@ -953,7 +955,7 @@ func (s *Server) GetIllustrationMetadata(w http.ResponseWriter, r *http.Request)
 
 	// Resolve the stored upload location, never a path supplied by embedded metadata.
 	// A missing original leaves historical metadata intact and can be retried later.
-	if groupID <= 0 || !filepath.IsLocal(filename) || strings.ContainsAny(filename, `/\`) {
+	if groupID <= 0 || !validStoredIllustrationFilename(filename) {
 		writeJSON(w, 200, parsed)
 		return
 	}
@@ -1094,12 +1096,16 @@ func mutateStoredTags(current string, requested []string, operation string) stri
 
 func (s *Server) ensureUploadDirs(groupID int) error {
 	baseDir := filepath.Join(s.UploadsDir(), strconv.Itoa(groupID))
-	for _, sub := range []string{"originals", "thumbnails", "thumbnails_normal"} {
+	for _, sub := range illustrationStorageDirs {
 		if err := os.MkdirAll(filepath.Join(baseDir, sub), 0755); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validStoredIllustrationFilename(name string) bool {
+	return name != "." && filepath.IsLocal(name) && !strings.ContainsAny(name, `/\`)
 }
 
 type illustrationScanner interface {

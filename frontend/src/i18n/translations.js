@@ -4,6 +4,7 @@ const translations = {
     'layout.brand': 'ARTIFEX',
     'layout.nav.tags': 'Tags',
     'layout.nav.prompts': 'Prompts',
+    'layout.nav.statistics': 'Statistics',
     'layout.nav.settings': 'Settings',
     'layout.search.placeholder': 'Search tags...',
     'layout.search.button': 'Search',
@@ -34,6 +35,9 @@ const translations = {
     'groupCard.renameTitle': 'Rename group',
     'groupCard.deleteTitle': 'Delete group',
     'groupCard.dragReorder': 'Drag to reorder',
+    'home.reorderPosition': 'Insert at position {position}',
+    'home.reorderBefore': 'Before “{name}”',
+    'home.reorderAfter': 'After “{name}”',
 
     // CreateGroupModal
     'createGroup.heading': 'New Group',
@@ -544,6 +548,7 @@ const translations = {
     'layout.brand': 'Gallery',
     'layout.nav.tags': '标签',
     'layout.nav.prompts': '提示词',
+    'layout.nav.statistics': '统计数字',
     'layout.nav.settings': '设置',
     'layout.search.placeholder': '搜索标签...',
     'layout.search.button': '搜索',
@@ -574,6 +579,9 @@ const translations = {
     'groupCard.renameTitle': '重命名分组',
     'groupCard.deleteTitle': '删除分组',
     'groupCard.dragReorder': '拖动以调整顺序',
+    'home.reorderPosition': '插入第 {position} 位',
+    'home.reorderBefore': '放在「{name}」之前',
+    'home.reorderAfter': '放在「{name}」之后',
 
     // CreateGroupModal
     'createGroup.heading': '新建分组',

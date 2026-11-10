@@ -20,35 +20,39 @@ export default function Layout({ children, onSearch }) {
     <div className="min-h-screen bg-surface-primary text-content-primary">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-edge-primary bg-surface-primary/80 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-x-5 gap-y-2.5 px-3 py-2.5 sm:px-4 lg:h-16 lg:flex-nowrap lg:py-0">
+          <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 lg:w-auto lg:flex-nowrap lg:gap-6">
             <a href="/" className="text-xl font-bold tracking-tight text-content-primary hover:text-accent transition-colors">
               {t('layout.brand')}
             </a>
-            <nav className="flex items-center gap-4">
-              <Link to="/tags" className="text-sm text-content-tertiary hover:text-accent transition-colors">
+            <nav className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-xs sm:gap-x-4 sm:text-sm">
+              <Link to="/tags" className="text-content-tertiary hover:text-accent transition-colors">
                 {t('layout.nav.tags')}
               </Link>
-              <Link to="/prompts" className="text-sm text-content-tertiary hover:text-accent transition-colors">
+              <Link to="/prompts" className="text-content-tertiary hover:text-accent transition-colors">
                 {t('layout.nav.prompts')}
               </Link>
-              <Link to="/settings" className="text-sm text-content-tertiary hover:text-accent transition-colors">
+              <Link to="/statistics" className="text-content-tertiary hover:text-accent transition-colors">
+                {t('layout.nav.statistics')}
+              </Link>
+              <Link to="/settings" className="text-content-tertiary hover:text-accent transition-colors">
                 {t('layout.nav.settings')}
               </Link>
             </nav>
           </div>
-          <div className="flex items-center gap-3">
-            <form onSubmit={handleSubmit} className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:gap-3 lg:w-auto">
+            <form onSubmit={handleSubmit} className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none">
               <TagPromptSuggest
                 type="tag"
                 value={query}
                 onChange={setQuery}
                 placeholder={t('layout.search.placeholder')}
-                inputClassName="w-64 px-4 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
+                className="min-w-0 flex-1 lg:flex-none"
+                inputClassName="w-full px-4 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors lg:w-64"
               />
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-sm font-medium text-white shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all hover:scale-[1.03] inline-flex items-center gap-2"
+                className="shrink-0 px-3 py-2 sm:px-5 rounded-xl bg-accent hover:bg-accent-hover text-sm font-medium text-white shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all hover:scale-[1.03] inline-flex items-center gap-2"
               >
                 <Search className="w-4 h-4" />
                 {t('layout.search.button')}

@@ -3,6 +3,7 @@ import { listPrompts, listTags } from '../api';
 import HomePage from '../pages/HomePage';
 import ReferenceListPage from '../pages/ReferenceListPage';
 import SettingsPage from '../pages/SettingsPage';
+import StatisticsPage from '../pages/StatisticsPage';
 
 const router = createBrowserRouter([
   {
@@ -16,6 +17,10 @@ const router = createBrowserRouter([
   {
     path: '/prompts',
     element: <ReferenceListPage loadItems={listPrompts} translationPrefix="prompts" />,
+  },
+  {
+    path: '/statistics',
+    element: <StatisticsPage />,
   },
   {
     path: '/settings',

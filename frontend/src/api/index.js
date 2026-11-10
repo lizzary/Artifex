@@ -156,6 +156,16 @@ export function searchIllustrations(query, offset = 0, limit = 100) {
   return request(`/api/search?q=${q}&offset=${offset}&limit=${limit}`);
 }
 
+// ── Statistics ────────────────────────────────────────
+
+export function getStatistics(signal) {
+  return request('/api/statistics', { signal });
+}
+
+export function getStatisticsGroupStorage(groupId, signal) {
+  return request(`/api/statistics/groups/${groupId}/storage`, { signal });
+}
+
 // ── Batch export ──────────────────────────────────────
 
 export function getExportCatalog(scope, signal) {
@@ -228,8 +238,8 @@ export function updateSettings(data) {
   });
 }
 
-export function getGroupConfig() {
-  return request('/api/group-config');
+export function getGroupConfig(signal) {
+  return request('/api/group-config', { signal });
 }
 
 export function updateGroupConfig(data) {
