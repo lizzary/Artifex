@@ -9,3 +9,4 @@
 /backend-go/gallery.db-wal
 /backend-go/config.toml
 /docs/开发维护文档.md
+/backend-go/bin/

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { getGroupConfig, updateColorConfig, updateGroupConfig } from '../api';
 import { applyColorOperations } from '../utils/colorConfig';
+import { isColorGroupPreviewLimit } from '../utils/colorGroupGallery';
 
 export const DEFAULT_GROUP_VIEW = Object.freeze({
   sort_by: '',
@@ -10,6 +11,9 @@ export const DEFAULT_GROUP_VIEW = Object.freeze({
   original_ratio: false,
   group_by: 'none',
   page_size: 50,
+  color_group_layout: 'single',
+  color_group_preview_mode: 'all',
+  color_group_preview_limit: 4,
 });
 
 const VALID_VALUES = {
@@ -20,10 +24,15 @@ const VALID_VALUES = {
   original_ratio: [false, true],
   group_by: ['none', 'mixed'],
   page_size: [50, 100, 200, 500, 1000, 'all'],
+  color_group_layout: ['single', 'double', 'mixed'],
+  color_group_preview_mode: ['all', 'limited'],
 };
 
 function viewValue(key, value) {
-  return VALID_VALUES[key].includes(value) ? value : DEFAULT_GROUP_VIEW[key];
+  const valid = key === 'color_group_preview_limit'
+    ? isColorGroupPreviewLimit(value)
+    : VALID_VALUES[key].includes(value);
+  return valid ? value : DEFAULT_GROUP_VIEW[key];
 }
 
 let committed = { group_order: [], groups: {} };

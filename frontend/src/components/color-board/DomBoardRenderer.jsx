@@ -90,7 +90,7 @@ const BoardCard = memo(function BoardCard({
       onMouseMove={(event) => onMouseMove(event, card)}
       onMouseLeave={() => onMouseLeave(id)}
       onClick={(event) => {
-        if (event.detail === 0) onKeyboardSelect(id);
+        if (event.detail === 0) onKeyboardSelect(id, event.ctrlKey || event.metaKey || event.shiftKey);
       }}
     >
       <img

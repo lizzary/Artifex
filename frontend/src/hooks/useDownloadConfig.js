@@ -1,17 +1,8 @@
 import useProjectPreference from './useProjectSettings';
 
 export const NAMING_TAGS = [
-  { key: 'date', label: 'date' },
-  { key: 'Resolution', label: 'Resolution' },
-  { key: 'File Size', label: 'File Size' },
-  { key: 'Date Created', label: 'Date Created' },
-  { key: 'group', label: 'group' },
-  { key: 'Model', label: 'model' },
-  { key: 'Seed', label: 'seed' },
-  { key: 'Sampler', label: 'sampler' },
-  { key: 'Steps', label: 'step' },
-  { key: 'CFG Scale', label: 'cfg scale' },
-  { key: 'Lora', label: 'lora' },
+  'date', 'Resolution', 'File Size', 'Date Created', 'group', 'Model',
+  'Seed', 'Sampler', 'Steps', 'CFG Scale', 'Lora',
 ];
 
 const FORBIDDEN_RE = /[<>:"/\\|?*]/g;

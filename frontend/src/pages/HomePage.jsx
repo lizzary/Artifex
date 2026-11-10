@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { Plus } from 'lucide-react';
+import { Archive, Plus } from 'lucide-react';
 import Layout from '../components/Layout';
 import GroupCard from '../components/GroupCard';
 import CreateGroupModal from '../components/CreateGroupModal';
 import ConfirmModal from '../components/ConfirmModal';
+import BatchExportModal from '../components/BatchExportModal';
 import GroupOverlay from '../components/GroupOverlay';
 import SearchOverlay from '../components/SearchOverlay';
 import { listGroups, createGroup, updateGroup, deleteGroup } from '../api';
@@ -17,6 +18,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [searchQuery, setSearchQuery] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -110,7 +112,7 @@ export default function HomePage() {
         )}
 
         {/* Page header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-content-primary">{t('home.heading')}</h1>
             <p className="text-sm text-content-muted mt-1">
@@ -120,13 +122,20 @@ export default function HomePage() {
               )}
             </p>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-sm font-medium text-white shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all hover:scale-[1.03] inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            {t('home.newGroup')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button type="button" onClick={() => setShowExport(true)} disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl border border-edge-primary bg-surface-secondary px-4 py-2.5 text-sm font-medium text-content-secondary transition-colors enabled:hover:border-accent/40 enabled:hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">
+              <Archive className="h-4 w-4" aria-hidden="true" />
+              {t('home.batchExport')}
+            </button>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-sm font-medium text-white shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all hover:scale-[1.03] inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              {t('home.newGroup')}
+            </button>
+          </div>
         </div>
 
         {/* Group grid */}
@@ -158,6 +167,8 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {showExport && <BatchExportModal groups={groups} onClose={() => setShowExport(false)} />}
 
       {/* Create modal */}
       {showCreate && (

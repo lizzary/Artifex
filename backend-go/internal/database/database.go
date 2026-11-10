@@ -47,6 +47,13 @@ func createSchema(db *sql.DB) error {
 			position INTEGER NOT NULL UNIQUE CHECK (position >= 0)
 		);
 
+		CREATE TABLE IF NOT EXISTS export_drafts (
+			scope INTEGER PRIMARY KEY,
+			group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+			draft TEXT NOT NULL CHECK (json_valid(draft)),
+			CHECK ((scope = 0 AND group_id IS NULL) OR (scope > 0 AND group_id IS scope))
+		);
+
 		CREATE TABLE IF NOT EXISTS illustrations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			group_id INTEGER NOT NULL,

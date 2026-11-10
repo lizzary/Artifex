@@ -513,7 +513,7 @@ func (s *Server) commitPreparedUpload(
 		SELECT i.*, ? AS group_name FROM illustrations i WHERE i.id = ?
 	`, groupName, illID))
 	if item == nil {
-		return nil, uploadAdded, fmt.Errorf("failed to build upload response for %s", prepared.safeFilename)
+		return nil, uploadAdded, fmt.Errorf("failed to frontend upload response for %s", prepared.safeFilename)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, uploadAdded, fmt.Errorf("failed to commit %s: %w", prepared.safeFilename, err)

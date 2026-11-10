@@ -156,6 +156,33 @@ export function searchIllustrations(query, offset = 0, limit = 100) {
   return request(`/api/search?q=${q}&offset=${offset}&limit=${limit}`);
 }
 
+// ── Batch export ──────────────────────────────────────
+
+export function getExportCatalog(scope, signal) {
+  return request('/api/export/catalog?scope=' + scope, { signal });
+}
+
+export function getExportDraft(scope, signal) {
+  return request('/api/export/draft/' + scope, { signal });
+}
+
+export function saveExportDraft(scope, draft) {
+  return request('/api/export/draft/' + scope, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(draft),
+  });
+}
+
+export function prepareExport(entries, signal) {
+  return request('/api/export/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entries),
+    signal,
+  });
+}
+
 // ── Model ───────────────────────────────────────────────
 
 export function checkModelStatus() {

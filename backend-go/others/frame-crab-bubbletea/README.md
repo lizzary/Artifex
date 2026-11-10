@@ -30,7 +30,7 @@ Press `q`, `Esc`, or `Ctrl+C` to exit.
 ## Build
 
 ```bash
-go build -o frame-crab .
+go frontend -o frame-crab .
 ./frame-crab
 ```
 

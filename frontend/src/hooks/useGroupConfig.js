@@ -99,10 +99,10 @@ export default function useGroupConfig(groupId) {
   }, [activeSet.id, submitOperations]);
 
   const setManualGroupIds = useCallback((illustrationIds, pairId) => {
-    if (isDraftSet && !pairId) return;
+    if (isDraftSet && !pairId) return Promise.resolve(false);
     const assignments = Object.fromEntries([...new Set(illustrationIds.map(String))].map((id) => [id, pairId || null]));
-    if (!Object.keys(assignments).length) return;
-    void submitOperations([{ type: 'assign', set_id: activeSet.id, assignments }]).catch(() => {});
+    if (!Object.keys(assignments).length) return Promise.resolve(false);
+    return submitOperations([{ type: 'assign', set_id: activeSet.id, assignments }]);
   }, [activeSet.id, isDraftSet, submitOperations]);
 
   const removeManualGroupIds = useCallback((illustrationIds) => {

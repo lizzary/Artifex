@@ -10,13 +10,16 @@ import (
 )
 
 type View struct {
-	SortBy        string `json:"sort_by"`
-	SortOrder     string `json:"sort_order"`
-	Quality       string `json:"quality"`
-	CardSize      int    `json:"card_size"`
-	OriginalRatio bool   `json:"original_ratio"`
-	GroupBy       string `json:"group_by"`
-	PageSize      any    `json:"page_size"`
+	SortBy                 string `json:"sort_by"`
+	SortOrder              string `json:"sort_order"`
+	Quality                string `json:"quality"`
+	CardSize               int    `json:"card_size"`
+	OriginalRatio          bool   `json:"original_ratio"`
+	GroupBy                string `json:"group_by"`
+	PageSize               any    `json:"page_size"`
+	ColorGroupLayout       string `json:"color_group_layout"`
+	ColorGroupPreviewMode  string `json:"color_group_preview_mode"`
+	ColorGroupPreviewLimit int    `json:"color_group_preview_limit"`
 }
 
 type Group struct {
@@ -30,7 +33,10 @@ type Config struct {
 }
 
 func DefaultView() View {
-	return View{SortOrder: "desc", Quality: "low", CardSize: 3, GroupBy: "none", PageSize: 50}
+	return View{
+		SortOrder: "desc", Quality: "low", CardSize: 3, GroupBy: "none", PageSize: 50,
+		ColorGroupLayout: "single", ColorGroupPreviewMode: "all", ColorGroupPreviewLimit: 4,
+	}
 }
 func EmptyColors() json.RawMessage { return json.RawMessage(`{"sets":[],"active_id":null}`) }
 func DefaultGroup() Group          { return Group{View: DefaultView(), Colors: EmptyColors()} }
@@ -55,6 +61,15 @@ func (v View) Validate() error {
 	}
 	if v.GroupBy != "none" && v.GroupBy != "mixed" {
 		return fmt.Errorf("invalid group_by")
+	}
+	if !slices.Contains([]string{"single", "double", "mixed"}, v.ColorGroupLayout) {
+		return fmt.Errorf("invalid color_group_layout")
+	}
+	if v.ColorGroupPreviewMode != "all" && v.ColorGroupPreviewMode != "limited" {
+		return fmt.Errorf("invalid color_group_preview_mode")
+	}
+	if v.ColorGroupPreviewLimit < 1 || v.ColorGroupPreviewLimit > 1000 {
+		return fmt.Errorf("color_group_preview_limit must be between 1 and 1000")
 	}
 	switch n := v.PageSize.(type) {
 	case string:

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowUpDown, ChevronLeft, ChevronRight, Download, ImagePlus, Layers, Loader2,
+  Archive, ArrowUpDown, ChevronLeft, ChevronRight, Download, ImagePlus, Layers, Loader2,
   Monitor, Palette, Ratio, Settings, Tag, Trash2, Upload, X,
 } from 'lucide-react';
 import useQuality from '../hooks/useQuality';
@@ -22,10 +22,11 @@ import {
   updateGroup, updateIllustrationTags, uploadIllustrations,
 } from '../api';
 import { useToast } from './Toast';
+import BatchExportModal from './BatchExportModal';
 import ConfirmModal from './ConfirmModal';
 import Lightbox from './Lightbox';
 import IllustrationCard from './IllustrationCard';
-import ColorGroup from './ColorGroup';
+import ColorGroupGallery, { ColorGroupGalleryControls } from './ColorGroupGallery';
 import SettingsSelect from './SettingsSelect';
 import TagPromptSuggest from './TagPromptSuggest';
 import GroupConfigModal from './GroupConfigModal';
@@ -34,6 +35,7 @@ import ModelDownloadModal from './ModelDownloadModal';
 import UploadSummaryModal from './UploadSummaryModal';
 import useGroupConfig, { removeManualAssignmentsForIllustrations } from '../hooks/useGroupConfig';
 import { downloadIllustrations } from '../utils/downloadIllustrations';
+import { limitColorGroups } from '../utils/colorGroupGallery';
 import { groupIllustrations, paginateIllustrationGroups } from '../utils/grouping';
 import { createUploadBatches } from '../utils/uploadBatches';
 import { useLocale } from '../contexts/LocaleContext';
@@ -63,9 +65,13 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [sortBy, setSortBy] = useGroupViewSetting(group.id, 'sort_by');
   const [sortOrder, setSortOrder] = useGroupViewSetting(group.id, 'sort_order');
   const [groupBy, setGroupBy] = useGroupBy(group.id);
+  const [colorGroupLayout, setColorGroupLayout] = useGroupViewSetting(group.id, 'color_group_layout');
+  const [previewMode, setPreviewMode] = useGroupViewSetting(group.id, 'color_group_preview_mode');
+  const [previewLimit, setPreviewLimit] = useGroupViewSetting(group.id, 'color_group_preview_limit');
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
   const [showColorBoard, setShowColorBoard] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const fileInputRef = useRef(null);
   const { addToast } = useToast();
   const [quality, setQuality] = useQuality(group.id);
@@ -226,7 +232,12 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     });
   }, [allGroupsCollapsed, groupedIllustrationIds]);
 
-  const paginationTotal = filteredIllustrations.length;
+  const previewGroups = useMemo(
+    () => limitColorGroups(groupedIllustrations, previewMode === 'limited' ? previewLimit : null),
+    [groupedIllustrations, previewLimit, previewMode],
+  );
+  const paginationTotal = previewGroups?.reduce((total, item) => total + item.items.length, 0)
+    ?? filteredIllustrations.length;
   const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(paginationTotal / pageSize));
 
   useEffect(() => {
@@ -234,9 +245,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   }, [totalPages]);
 
   const paginatedGroupedIllustrations = useMemo(() => {
-    if (!groupedIllustrations) return null;
-    return paginateIllustrationGroups(groupedIllustrations, currentPage, pageSize);
-  }, [groupedIllustrations, currentPage, pageSize]);
+    if (!previewGroups) return null;
+    return paginateIllustrationGroups(previewGroups, currentPage, pageSize);
+  }, [previewGroups, currentPage, pageSize]);
 
   const paginatedIllustrations = useMemo(() => {
     if (groupedIllustrations || pageSize === 'all') return filteredIllustrations;
@@ -613,8 +624,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       {!showColorBoard && (
         <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 border-b border-edge-primary px-4 py-3.5 shrink-0 sm:px-6">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-edge-primary px-4 py-3.5 sm:px-6">
+          <div className="flex min-w-[min(100%,13rem)] flex-1 items-center gap-3">
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary transition-colors"
@@ -649,9 +660,15 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 {activeConfig.pairs.length}
               </span>
             </button>
+            <button type="button" onClick={() => setShowExport(true)} title={t('home.batchExport')}
+              aria-label={t('home.batchExport')}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-edge-primary bg-surface-secondary p-2.5 text-xs font-medium text-content-tertiary transition-colors hover:border-accent/40 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              <Archive className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden 2xl:inline">{t('home.batchExport')}</span>
+            </button>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2.5">
+          <div className="flex max-w-full flex-wrap items-center gap-2.5">
             {/* In-page search */}
             <TagPromptSuggest
               type="mixed"
@@ -660,7 +677,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
               onSelect={(v, scope) => { setFilterQuery(v); setFilterScope(scope); }}
               onEnter={(v) => { setFilterQuery(v); setFilterScope('all'); }}
               placeholder={t('groupOverlay.filter.placeholder')}
-              className="w-52"
+              className="w-40 sm:w-52"
               inputClassName="w-full pl-3 pr-3 py-2 rounded-lg bg-surface-tertiary border border-edge-secondary text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-accent/50 transition-colors"
             />
 
@@ -772,7 +789,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className={`flex-1 overflow-y-auto px-3 pb-20 pt-4 sm:px-6 sm:pt-6 ${paginatedGroupedIllustrations ? '[scrollbar-gutter:stable]' : ''}`}>
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-danger/30 border border-danger text-danger text-sm">
               {error}
@@ -829,7 +846,11 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 <span className="font-medium text-content-primary">{currentPage}</span>
                 <span>{t('groupOverlay.pagination.of')}</span>
                 <span className="font-medium text-content-primary">{totalPages}</span>
-                <span className="text-content-muted ml-1">({t('groupOverlay.pagination.total', { total: paginationTotal })})</span>
+                <span className="text-content-muted ml-1">
+                  ({paginationTotal < filteredIllustrations.length
+                    ? t('colorGroup.gallery.previewTotal', { shown: paginationTotal, total: filteredIllustrations.length })
+                    : t('groupOverlay.pagination.total', { total: paginationTotal })})
+                </span>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {groupedIllustrationIds.length > 0 && (
@@ -906,6 +927,25 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             </div>
           )}
 
+          {!loading && groupedIllustrationIds.length > 0 && (
+            <ColorGroupGalleryControls
+              layout={colorGroupLayout}
+              onLayoutChange={setColorGroupLayout}
+              previewMode={previewMode}
+              onPreviewModeChange={(mode) => {
+                clearSelection();
+                setCurrentPage(1);
+                setPreviewMode(mode);
+              }}
+              previewLimit={previewLimit}
+              onPreviewLimitChange={(limit) => {
+                clearSelection();
+                setCurrentPage(1);
+                setPreviewLimit(limit);
+              }}
+            />
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center h-64 text-content-muted text-sm">{t('groupOverlay.loading')}</div>
           ) : illustrations.length === 0 ? (
@@ -917,22 +957,14 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
               <p className="text-sm">{t('groupOverlay.empty')}</p>
             </div>
           ) : paginatedGroupedIllustrations ? (
-            /* Grouped rendering */
-            <div>
-              {paginatedGroupedIllustrations.map((group) => (
-                <ColorGroup
-                  key={group.id}
-                  group={group}
-                  collapsed={collapsedGroups.has(group.id)}
-                  onToggle={() => toggleGroupCollapse(group.id)}
-                  cardSize={cardSize}
-                >
-                  {group.items.map((ill) => (
-                    <IllustrationCard key={ill.id} {...cardProps(ill)} />
-                  ))}
-                </ColorGroup>
-              ))}
-            </div>
+            <ColorGroupGallery
+              groups={paginatedGroupedIllustrations}
+              layout={colorGroupLayout}
+              collapsedGroups={collapsedGroups}
+              onToggle={toggleGroupCollapse}
+              cardSize={cardSize}
+              renderCard={(ill) => <IllustrationCard key={ill.id} {...cardProps(ill)} />}
+            />
           ) : (
             /* Flat grid (no grouping) */
             <div className={`grid items-start ${cardSizeGrid} gap-4`}>
@@ -1037,6 +1069,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
       </AnimatePresence>
 
       {/* Model download modal */}
+      {showExport && <BatchExportModal groupId={group.id} groups={[group]} onClose={() => setShowExport(false)} />}
+
       {showModelModal && (
         <ModelDownloadModal
           onDownload={handleModelDownload}

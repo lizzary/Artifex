@@ -120,7 +120,7 @@ func run() error {
 func parseOptions() options {
 	host := flag.String("host", "127.0.0.1", "Host to listen on")
 	port := flag.Int("port", 8000, "Port to listen on")
-	frontendDir := flag.String("frontend", "", "Path to frontend build directory")
+	frontendDir := flag.String("frontend", "", "Path to frontend frontend directory")
 	cliTheme := flag.String("cli-theme", "", "Terminal appearance: auto, dark, or light")
 	noUI := flag.Bool("no-ui", false, "Disable the interactive terminal interface")
 	flag.Parse()
@@ -141,7 +141,7 @@ func parseOptions() options {
 			}
 		}
 		if *frontendDir == "" {
-			devFrontend := filepath.Join(baseDir, "..", "frontend", "build")
+			devFrontend := filepath.Join(baseDir, "..", "frontend", "frontend")
 			if abs, err := filepath.Abs(devFrontend); err == nil {
 				devFrontend = abs
 			}
@@ -196,7 +196,7 @@ func (rt *appRuntime) bootstrap() cli.BootResult {
 
 	result.FrontendReady = frontendExists(rt.opts.frontendDir)
 	if !result.FrontendReady {
-		rt.log.Warn("frontend", "build files not found at %s", rt.opts.frontendDir)
+		rt.log.Warn("frontend", "frontend files not found at %s", rt.opts.frontendDir)
 	}
 
 	srv, err := server.NewServer(server.ServerConfig{

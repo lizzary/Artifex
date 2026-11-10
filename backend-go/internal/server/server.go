@@ -58,6 +58,7 @@ type Server struct {
 	db                  *sql.DB
 	libraryMu           sync.RWMutex
 	libraryID           string
+	exports             exportTickets
 }
 
 // Image decoding and Lanczos thumbnail generation need several times the
@@ -119,6 +120,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		r.Get("/illustrations/{illustrationId}/file", s.ServeIllustrationFile)
 		r.Get("/illustrations/{illustrationId}/thumbnail", s.ServeIllustrationThumbnail)
 		r.Get("/illustrations/{illustrationId}/metadata", s.GetIllustrationMetadata)
+		r.Get("/export/catalog", s.GetExportCatalog)
+		r.Get("/export/draft/{scope}", s.GetExportDraft)
+		r.Put("/export/draft/{scope}", s.SaveExportDraft)
+		r.Post("/export/download", s.PrepareExport)
+		r.Get("/export/download/{ticket}", s.DownloadExport)
 
 		// Search
 		r.Get("/search", s.SearchIllustrations)

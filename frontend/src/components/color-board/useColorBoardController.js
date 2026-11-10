@@ -17,6 +17,8 @@ import {
 import { clamp, getAspectFitPreviewHeight } from '../../utils/illustrationPreview';
 import useProjectPreference from '../../hooks/useProjectSettings';
 import {
+  BOARD_OUTSIDE_DROP_TARGET,
+  BOARD_TRAY_DROP_TARGET,
   PREVIEW_CHROME_HEIGHT,
   PREVIEW_MEDIA_MAX_HEIGHT,
   PREVIEW_MEDIA_MIN_HEIGHT,
@@ -48,6 +50,14 @@ function sameSet(left, right) {
     if (!right.has(value)) return false;
   }
   return true;
+}
+
+function nextCardSelection(current, id, additive, keepSelected = false) {
+  if (!additive) return keepSelected && current.has(id) ? current : new Set([id]);
+  const next = new Set(current);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
 }
 
 function useStableEvent(handler) {
@@ -97,6 +107,8 @@ export default function useColorBoardController({
   const previewRef = useRef(null);
   const previewFrameRef = useRef(null);
   const pendingPreviewGeometryRef = useRef(null);
+  const trayDragPreviewRef = useRef(null);
+  const trayMovePendingRef = useRef(false);
 
   const [view, setView] = useState(() => ({ ...INITIAL_VIEW }));
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -105,9 +117,28 @@ export default function useColorBoardController({
   const [dropTarget, setDropTarget] = useState(null);
   const [lastAction, setLastAction] = useState('');
   const [tagPanelOpen, setTagPanelOpen] = useState(false);
+  const [selectionSource, setSelectionSource] = useState('board');
+  const [trayOpen, setTrayOpenState] = useState(false);
+  const [trayIds, setTrayIds] = useState(new Set());
+  const [traySelection, setTraySelection] = useState(new Set());
+  const [trayDrag, setTrayDrag] = useState(null);
+  const [trayMovePending, setTrayMovePending] = useState(false);
   const [freeRowLimit, saveFreeRowLimit] = useProjectPreference('board_free_row_limit', FREE_ROW_LIMIT_DEFAULT);
+  const activeSelectionIds = selectionSource === 'tray' ? traySelection : selectedIds;
 
   previewRef.current = preview;
+
+  function activateSelection(source) {
+    if (source === selectionSource) return;
+    setSelectionSource(source);
+    setTagPanelOpen(false);
+  }
+
+  const setTrayOpen = useStableEvent((open) => {
+    setTrayOpenState(open);
+    if (open && traySelection.size > 0) activateSelection('tray');
+    if (!open && selectionSource === 'tray') activateSelection('board');
+  });
 
   const setFreeRowLimit = useCallback(async (value) => {
     const nextValue = clamp(
@@ -122,7 +153,7 @@ export default function useColorBoardController({
     }
   }, [saveFreeRowLimit, t]);
 
-  const layout = useMemo(() => buildColorBoardLayout(
+  const boardLayout = useMemo(() => buildColorBoardLayout(
     illustrations,
     pairs,
     matchOrder,
@@ -137,6 +168,21 @@ export default function useColorBoardController({
     pairs,
     t,
   ]);
+  const layout = useMemo(() => {
+    if (trayIds.size === 0) return boardLayout;
+    return {
+      ...boardLayout,
+      cards: boardLayout.cards.filter((card) => !trayIds.has(card.illustration.id)),
+    };
+  }, [boardLayout, trayIds]);
+  const illustrationsById = useMemo(
+    () => new Map(illustrations.map((illustration) => [illustration.id, illustration])),
+    [illustrations],
+  );
+  const trayIllustrations = useMemo(
+    () => [...trayIds].map((id) => illustrationsById.get(id)).filter(Boolean),
+    [illustrationsById, trayIds],
+  );
 
   const circleById = useMemo(
     () => new Map(layout.circles.map((circle) => [circle.id, circle])),
@@ -190,6 +236,13 @@ export default function useColorBoardController({
   }, [applyWorldTransform]);
 
   const applyDragOffset = useCallback((offset) => {
+    if (gestureRef.current?.source === 'tray') {
+      const previewElement = trayDragPreviewRef.current;
+      if (previewElement) {
+        previewElement.style.transform = `translate3d(${offset.x}px, ${offset.y}px, 0)`;
+      }
+      return;
+    }
     rendererRef.current?.setDragOffset?.(offset);
   }, []);
 
@@ -307,16 +360,6 @@ export default function useColorBoardController({
     return () => window.removeEventListener('resize', handleResize);
   }, [focusInitialView]);
 
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
-      if (tagPanelOpen) setTagPanelOpen(false);
-      else onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, tagPanelOpen]);
-
   useEffect(() => () => {
     gestureRef.current?.cleanup?.();
     cancelFrame(gestureRef.current?.frameId);
@@ -326,16 +369,18 @@ export default function useColorBoardController({
   }, []);
 
   useEffect(() => {
-    setSelectedIds((previous) => {
-      const availableIds = new Set(illustrations.map((illustration) => illustration.id));
-      const next = new Set([...previous].filter((id) => availableIds.has(id)));
+    const keepAvailable = (previous) => {
+      const next = new Set([...previous].filter((id) => illustrationsById.has(id)));
       return sameSet(previous, next) ? previous : next;
-    });
-  }, [illustrations]);
+    };
+    setSelectedIds(keepAvailable);
+    setTrayIds(keepAvailable);
+    setTraySelection(keepAvailable);
+  }, [illustrationsById]);
 
   useEffect(() => {
-    if (selectedIds.size === 0) setTagPanelOpen(false);
-  }, [selectedIds.size]);
+    if (activeSelectionIds.size === 0) setTagPanelOpen(false);
+  }, [activeSelectionIds.size]);
 
   useEffect(() => {
     if (!lastAction) return undefined;
@@ -414,112 +459,201 @@ export default function useColorBoardController({
     });
   });
 
-  const handleCardPointerDown = useStableEvent((event, card) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const illustrationId = card.illustration.id;
-    const additive = event.ctrlKey || event.metaKey || event.shiftKey;
-    const nextSelection = new Set(selectedIds);
+  const addToTray = useStableEvent((ids) => {
+    const availableIds = new Set(ids.filter((id) => illustrationsById.has(id) && !trayIds.has(id)));
+    if (availableIds.size === 0) return;
+    setTrayIds((previous) => new Set([...previous, ...availableIds]));
+    setTraySelection(availableIds);
+    setSelectedIds((previous) => new Set([...previous].filter((id) => !availableIds.has(id))));
+    setTrayOpenState(true);
+    activateSelection('tray');
+    clearHover();
+    setLastAction(t('colorBoard.tray.staged', { count: availableIds.size }));
+  });
 
-    if (additive) {
-      if (nextSelection.has(illustrationId)) nextSelection.delete(illustrationId);
-      else nextSelection.add(illustrationId);
-    } else if (!nextSelection.has(illustrationId)) {
-      nextSelection.clear();
-      nextSelection.add(illustrationId);
+  const removeFromTray = useCallback((ids) => {
+    const removed = new Set(ids);
+    const keepOthers = (previous) => new Set([...previous].filter((id) => !removed.has(id)));
+    setTrayIds(keepOthers);
+    setTraySelection(keepOthers);
+  }, []);
+
+  const returnTraySelection = useStableEvent(() => {
+    if (trayMovePendingRef.current || traySelection.size === 0) return;
+    removeFromTray(traySelection);
+    setLastAction(t('colorBoard.tray.returned', { count: traySelection.size }));
+  });
+
+  const placeCards = useStableEvent(async (ids, target, fromTray = false) => {
+    const availableIds = ids.filter((id) => illustrationsById.has(id));
+    if (availableIds.length === 0 || (fromTray && (!target || trayMovePendingRef.current))) return;
+    if (fromTray) {
+      trayMovePendingRef.current = true;
+      setTrayMovePending(true);
     }
+    try {
+      await onAssign(availableIds, target?.id || null);
+      if (fromTray) removeFromTray(availableIds);
+      setLastAction(target
+        ? t('colorBoard.action.assigned', { count: availableIds.length, group: target.label })
+        : t('colorBoard.action.cleared', { count: availableIds.length }));
+    } catch {
+      setLastAction(t('settings.toast.saveFailed'));
+    } finally {
+      if (fromTray) {
+        trayMovePendingRef.current = false;
+        setTrayMovePending(false);
+      }
+    }
+  });
 
-    setSelectedIds(nextSelection);
-    const ids = nextSelection.has(illustrationId) ? [...nextSelection] : [];
+  const beginCardGesture = useStableEvent((event, ids, source, clickSelectionId) => {
     const gesture = {
       type: 'cards',
+      source,
       pointerId: event.pointerId,
       ids,
+      clickSelectionId,
       startClient: { x: event.clientX, y: event.clientY },
       viewportRect: viewportRef.current?.getBoundingClientRect(),
       dragged: false,
       activeDropTarget: null,
     };
-    const finishAnywhere = (pointerEvent) => {
-      if (pointerEvent.pointerId === gesture.pointerId) handleCardPointerUp(pointerEvent);
-    };
-    const cancelAnywhere = (pointerEvent) => {
-      if (pointerEvent.pointerId === gesture.pointerId) handleCardPointerCancel(pointerEvent);
-    };
     gesture.cleanup = () => {
-      window.removeEventListener('pointerup', finishAnywhere, true);
-      window.removeEventListener('pointercancel', cancelAnywhere, true);
+      window.removeEventListener('pointermove', handleCardPointerMove, true);
+      window.removeEventListener('pointerup', handleCardPointerUp, true);
+      window.removeEventListener('pointercancel', handleCardPointerCancel, true);
     };
     gestureRef.current = gesture;
     viewportRef.current?.setPointerCapture?.(event.pointerId);
-    window.addEventListener('pointerup', finishAnywhere, true);
-    window.addEventListener('pointercancel', cancelAnywhere, true);
+    window.addEventListener('pointermove', handleCardPointerMove, true);
+    window.addEventListener('pointerup', handleCardPointerUp, true);
+    window.addEventListener('pointercancel', handleCardPointerCancel, true);
     resetDragOffset();
-    rendererRef.current?.beginDrag?.(ids);
-    setDraggingIds(new Set(ids));
     setDropTarget(null);
     clearHover();
+  });
+
+  const handleCardPointerDown = useStableEvent((event, card) => {
+    event.preventDefault();
+    event.stopPropagation();
+    activateSelection('board');
+    const id = card.illustration.id;
+    const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+    const nextSelection = nextCardSelection(selectedIds, id, additive, true);
+    setSelectedIds(nextSelection);
+    if (nextSelection.has(id)) beginCardGesture(event, [...nextSelection], 'board');
+  });
+
+  const handleTrayCardPointerDown = useStableEvent((event, id) => {
+    if (event.button !== 0 || gestureRef.current || trayMovePendingRef.current) return;
+    activateSelection('tray');
+    const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+    const nextSelection = nextCardSelection(traySelection, id, additive, true);
+    setTraySelection(nextSelection);
+    if (nextSelection.has(id)) beginCardGesture(event, [...nextSelection], 'tray', additive ? null : id);
+  });
+
+  const resolveCardDropTarget = useStableEvent((event, gesture) => {
+    const { clientX, clientY } = event;
+    const hit = document.elementFromPoint?.(clientX, clientY);
+    if (hit?.closest('[data-color-board-tray-drop]')) {
+      return gesture.source === 'board' ? BOARD_TRAY_DROP_TARGET : null;
+    }
+    const viewport = viewportRef.current;
+    if (!viewport || (hit && !viewport.contains(hit))) return null;
+    const rect = gesture.viewportRect;
+    if (rect && (clientX < rect.left || clientY < rect.top
+      || clientX >= rect.left + (rect.width || window.innerWidth)
+      || clientY >= rect.top + (rect.height || window.innerHeight))) return null;
+    const point = toWorld(clientX, clientY, rect);
+    return layout.circles.find((circle) => pointInCircle(point, circle))?.id || BOARD_OUTSIDE_DROP_TARGET;
   });
 
   const handleCardPointerMove = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.type !== 'cards' || gesture.pointerId !== event.pointerId) return;
-    const dx = (event.clientX - gesture.startClient.x) / viewRef.current.scale;
-    const dy = (event.clientY - gesture.startClient.y) / viewRef.current.scale;
-    if (!gesture.dragged && Math.hypot(dx, dy) < 5) return;
-    gesture.dragged = true;
-    queueDragOffset({ x: dx, y: dy });
-    const worldPoint = toWorld(event.clientX, event.clientY, gesture.viewportRect);
-    const target = layout.circles.find((circle) => pointInCircle(worldPoint, circle));
-    gesture.hasDropTarget = true;
-    gesture.dropTargetId = target?.id || null;
-    const nextDropTarget = target?.id || 'outside';
+    const dx = event.clientX - gesture.startClient.x;
+    const dy = event.clientY - gesture.startClient.y;
+    const fromTray = gesture.source === 'tray';
+    if (!gesture.dragged) {
+      if (Math.hypot(dx, dy) < 5) return;
+      gesture.dragged = true;
+      setLastAction('');
+      if (fromTray) {
+        setTrayDrag({
+          illustration: illustrationsById.get(gesture.clickSelectionId ?? gesture.ids[0]),
+          count: gesture.ids.length,
+          x: event.clientX,
+          y: event.clientY,
+        });
+      } else {
+        rendererRef.current?.beginDrag?.(gesture.ids);
+        setDraggingIds(new Set(gesture.ids));
+      }
+    }
+    const scale = viewRef.current.scale;
+    queueDragOffset(fromTray
+      ? { x: event.clientX, y: event.clientY }
+      : { x: dx / scale, y: dy / scale });
+    const nextDropTarget = resolveCardDropTarget(event, gesture);
     if (gesture.activeDropTarget !== nextDropTarget) {
       gesture.activeDropTarget = nextDropTarget;
       setDropTarget(nextDropTarget);
     }
   });
 
-  const finishCardGesture = useCallback((event) => {
+  const finishCardGesture = useCallback((pointerId) => {
     const gesture = gestureRef.current;
     gesture?.cleanup?.();
     gestureRef.current = null;
     setDraggingIds(new Set());
     resetDragOffset();
     setDropTarget(null);
-    if (viewportRef.current?.hasPointerCapture?.(event.pointerId)) {
-      viewportRef.current.releasePointerCapture(event.pointerId);
+    setTrayDrag(null);
+    if (viewportRef.current?.hasPointerCapture?.(pointerId)) {
+      viewportRef.current.releasePointerCapture(pointerId);
     }
   }, [resetDragOffset]);
 
   const handleCardPointerUp = useStableEvent((event) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.type !== 'cards' || gesture.pointerId !== event.pointerId) return;
-    if (gesture.dragged && gesture.ids.length > 0) {
-      const pointerTarget = gesture.hasDropTarget
-        ? null
-        : layout.circles.find((circle) => pointInCircle(
-          toWorld(event.clientX, event.clientY, gesture.viewportRect),
-          circle,
-        ));
-      const targetId = gesture.hasDropTarget ? gesture.dropTargetId : pointerTarget?.id;
-      const target = targetId ? circleById.get(targetId) : null;
-      onAssign(gesture.ids, target?.id || null);
-      setLastAction(target
-        ? t('colorBoard.action.assigned', { count: gesture.ids.length, group: target.label })
-        : t('colorBoard.action.cleared', { count: gesture.ids.length }));
+    const fromTray = gesture.source === 'tray';
+    if (gesture.dragged) {
+      const targetId = resolveCardDropTarget(event, gesture);
+      const target = circleById.get(targetId);
+      if (targetId === BOARD_TRAY_DROP_TARGET) addToTray(gesture.ids);
+      else if (target || (!fromTray && targetId === BOARD_OUTSIDE_DROP_TARGET)) {
+        void placeCards(gesture.ids, target, fromTray);
+      }
+    } else if (fromTray && gesture.clickSelectionId != null) {
+      setTraySelection(new Set([gesture.clickSelectionId]));
     }
-    finishCardGesture(event);
+    finishCardGesture(event.pointerId);
   });
 
   const handleCardPointerCancel = useStableEvent((event) => {
     const gesture = gestureRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    finishCardGesture(event);
+    if (!gesture || gesture.type !== 'cards' || gesture.pointerId !== event.pointerId) return;
+    finishCardGesture(event.pointerId);
   });
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      const gesture = gestureRef.current;
+      if (gesture?.type === 'cards') finishCardGesture(gesture.pointerId);
+      else if (tagPanelOpen) setTagPanelOpen(false);
+      else if (trayOpen) setTrayOpen(false);
+      else onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [finishCardGesture, onClose, setTrayOpen, tagPanelOpen, trayOpen]);
+
   const handleViewportPointerDown = useStableEvent((event) => {
+    if (gestureRef.current) return;
     if (event.button === 2) {
       event.preventDefault();
       viewportRef.current?.setPointerCapture?.(event.pointerId);
@@ -550,6 +684,7 @@ export default function useColorBoardController({
       return;
     }
 
+    activateSelection('board');
     const additive = event.ctrlKey || event.metaKey || event.shiftKey;
     const baseSelection = additive ? new Set(selectedIds) : new Set();
     if (!additive) setSelectedIds((previous) => (previous.size === 0 ? previous : new Set()));
@@ -592,10 +727,6 @@ export default function useColorBoardController({
       return;
     }
     if (gesture.pointerId !== event.pointerId) return;
-    if (gesture.type === 'cards') {
-      handleCardPointerMove(event);
-      return;
-    }
     if (gesture.type === 'pan') {
       queueViewTransform({
         ...gesture.startView,
@@ -675,19 +806,24 @@ export default function useColorBoardController({
   });
 
   const handleKeyboardSelect = useStableEvent((illustrationId, additive = false) => {
-    setSelectedIds((previous) => {
-      if (!additive) return new Set([illustrationId]);
-      const next = new Set(previous);
-      if (next.has(illustrationId)) next.delete(illustrationId);
-      else next.add(illustrationId);
-      return next;
-    });
+    activateSelection('board');
+    setSelectedIds((previous) => nextCardSelection(previous, illustrationId, additive));
+  });
+
+  const selectTrayCard = useStableEvent((id, additive) => {
+    activateSelection('tray');
+    setTraySelection((previous) => nextCardSelection(previous, id, additive));
   });
 
   return {
+    activeSelectionIds,
+    addSelectionToTray: () => addToTray([...selectedIds]),
     circleById,
     clearPreview,
-    clearSelection: () => setSelectedIds(new Set()),
+    clearSelection: () => {
+      const setActiveSelection = selectionSource === 'tray' ? setTraySelection : setSelectedIds;
+      setActiveSelection(new Set());
+    },
     draggingIds,
     dropTarget,
     fitToView,
@@ -696,6 +832,7 @@ export default function useColorBoardController({
     handleCardMouseLeave,
     handleCardMouseMove,
     handleKeyboardSelect,
+    handleTrayCardPointerDown,
     handleViewportPointerCancel,
     handleViewportPointerDown,
     handleViewportPointerLeave: clearHover,
@@ -703,13 +840,24 @@ export default function useColorBoardController({
     handleViewportPointerUp,
     lastAction,
     layout,
+    placeTraySelection: (groupId) => placeCards([...traySelection], circleById.get(groupId), true),
     preview,
     rendererRef,
+    returnTraySelection,
+    selectTrayCard,
     selectedIds,
+    selectionSource,
     setFreeRowLimit,
     setLastAction,
     setTagPanelOpen,
+    setTrayOpen,
     tagPanelOpen,
+    trayDrag,
+    trayDragPreviewRef,
+    trayIllustrations,
+    trayMovePending,
+    trayOpen,
+    traySelection,
     view,
     viewportRef,
     zoomTo,

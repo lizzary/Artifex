@@ -15,8 +15,11 @@ import ColorBoardSelectionDock from './ColorBoardSelectionDock';
 import IllustrationPreviewImage from './IllustrationPreviewImage';
 import InferenceIcon from './InferenceIcon';
 import DomBoardRenderer from './color-board/DomBoardRenderer';
+import ColorBoardTray from './color-board/ColorBoardTray';
 import useColorBoardController from './color-board/useColorBoardController';
-import { BOARD_PREVIEW_QUALITY } from './color-board/constants';
+import {
+  BOARD_OUTSIDE_DROP_TARGET, BOARD_PREVIEW_QUALITY, BOARD_TRAY_DROP_TARGET,
+} from './color-board/constants';
 
 const WebGLBoardRenderer = lazy(() => import('./color-board/WebGLBoardRenderer'));
 
@@ -83,8 +86,8 @@ export default function ColorGroupBoard({
   }, [setBoardLastAction, t]);
 
   const selectedIllustrations = useMemo(
-    () => illustrations.filter((illustration) => controller.selectedIds.has(illustration.id)),
-    [controller.selectedIds, illustrations],
+    () => illustrations.filter((illustration) => controller.activeSelectionIds.has(illustration.id)),
+    [controller.activeSelectionIds, illustrations],
   );
   const resolveColorGroupName = useCallback((illustration) => {
     const membership = controller.layout.memberships.get(illustration.id);
@@ -92,6 +95,12 @@ export default function ColorGroupBoard({
       || t('colorBoard.tags.otherGroup');
   }, [controller.circleById, controller.layout.memberships, t]);
   const manualTotal = Object.keys(manualAssignments || {}).length;
+  const dropCircle = controller.circleById.get(controller.dropTarget);
+  const showSelectionDock = selectedIllustrations.length > 0 && !controller.dropTarget
+    && !controller.trayDrag && controller.draggingIds.size === 0
+    && !(controller.selectionSource === 'tray' && controller.trayMovePending);
+  const showActionHint = controller.dropTarget || selectedIllustrations.length === 0
+    || (controller.lastAction && (!showSelectionDock || !controller.tagPanelOpen));
 
   const rendererProps = {
     layout: controller.layout,
@@ -285,6 +294,26 @@ export default function ColorGroupBoard({
         )}
       </div>
 
+      {(pairs.length > 0 || controller.trayIllustrations.length > 0) && (
+        <ColorBoardTray
+          open={controller.trayOpen}
+          onOpenChange={controller.setTrayOpen}
+          dropActive={controller.dropTarget === BOARD_TRAY_DROP_TARGET}
+          illustrations={controller.trayIllustrations}
+          selectedIds={controller.traySelection}
+          boardSelectionSize={controller.selectedIds.size}
+          groups={controller.layout.circles}
+          moving={controller.trayMovePending}
+          drag={controller.trayDrag}
+          dragPreviewRef={controller.trayDragPreviewRef}
+          onAddSelection={controller.addSelectionToTray}
+          onCardPointerDown={controller.handleTrayCardPointerDown}
+          onCardSelect={controller.selectTrayCard}
+          onReturnSelection={controller.returnTraySelection}
+          onPlaceSelection={controller.placeTraySelection}
+        />
+      )}
+
       {controller.preview && (
         <div
           data-color-board-preview
@@ -322,8 +351,8 @@ export default function ColorGroupBoard({
         </div>
       )}
 
-      {(controller.lastAction || controller.dropTarget || controller.selectedIds.size === 0) && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+      {showActionHint && (
+        <div className={`pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4 ${showSelectionDock ? 'bottom-28 sm:bottom-20' : 'bottom-4'}`}>
           <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-2xl border border-edge-primary/90 bg-surface-secondary/90 px-3 py-2 shadow-xl shadow-overlay/10 backdrop-blur-xl">
             {controller.lastAction ? (
               <span
@@ -335,11 +364,10 @@ export default function ColorGroupBoard({
               </span>
             ) : controller.dropTarget ? (
               <span className="px-2 text-xs font-medium text-accent">
-                {controller.dropTarget === 'outside'
-                  ? t('colorBoard.drop.clear')
-                  : t('colorBoard.drop.group', {
-                    group: controller.circleById.get(controller.dropTarget)?.label || '',
-                  })}
+                {controller.dropTarget === BOARD_TRAY_DROP_TARGET && t('colorBoard.tray.drop')}
+                {controller.dropTarget === BOARD_OUTSIDE_DROP_TARGET && t(controller.trayDrag
+                  ? 'colorBoard.tray.dropOnGroup' : 'colorBoard.drop.clear')}
+                {dropCircle && t('colorBoard.drop.group', { group: dropCircle.label })}
               </span>
             ) : (
               <>
@@ -363,22 +391,22 @@ export default function ColorGroupBoard({
         </div>
       )}
 
-      {controller.selectedIds.size > 0 && !controller.lastAction && !controller.dropTarget && (
-        <ColorBoardSelectionDock
-          selectedIllustrations={selectedIllustrations}
-          quality={BOARD_PREVIEW_QUALITY}
-          resolveColorGroupName={resolveColorGroupName}
-          onClear={controller.clearSelection}
-          onDownload={onDownload}
-          onDelete={onDelete}
-          onUpdateTags={onUpdateTags}
-          tagPanelOpen={controller.tagPanelOpen}
-          onTagPanelChange={(open) => {
-            controller.setTagPanelOpen(open);
-            if (open) controller.clearPreview();
-          }}
-        />
-      )}
+      <ColorBoardSelectionDock
+        visible={showSelectionDock}
+        selectionSource={controller.selectionSource}
+        selectedIllustrations={selectedIllustrations}
+        quality={BOARD_PREVIEW_QUALITY}
+        resolveColorGroupName={resolveColorGroupName}
+        onClear={controller.clearSelection}
+        onDownload={onDownload}
+        onDelete={onDelete}
+        onUpdateTags={onUpdateTags}
+        tagPanelOpen={controller.tagPanelOpen}
+        onTagPanelChange={(open) => {
+          controller.setTagPanelOpen(open);
+          if (open) controller.clearPreview();
+        }}
+      />
     </motion.div>
   );
 }

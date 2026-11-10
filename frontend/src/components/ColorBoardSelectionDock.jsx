@@ -248,6 +248,8 @@ function PartialTagChip({
 }
 
 export default function ColorBoardSelectionDock({
+  visible = true,
+  selectionSource = 'board',
   selectedIllustrations,
   quality,
   resolveColorGroupName,
@@ -261,7 +263,7 @@ export default function ColorBoardSelectionDock({
   const { t } = useLocale();
   const [tagValue, setTagValue] = useState('');
   const [pendingKey, setPendingKey] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteIds, setDeleteIds] = useState(null);
   const [tagPanelHeight, setTagPanelHeight] = useState(() => {
     const bounds = getTagPanelHeightBounds();
     return clamp(TAG_PANEL_DEFAULT_HEIGHT, bounds.min, bounds.max);
@@ -276,6 +278,27 @@ export default function ColorBoardSelectionDock({
     () => selectedIllustrations.map((illustration) => illustration.id),
     [selectedIllustrations],
   );
+
+  useEffect(() => {
+    setTagValue('');
+    setDeleteIds(null);
+  }, [selectionSource]);
+
+  useEffect(() => {
+    if (!visible) setDeleteIds(null);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!deleteIds) return undefined;
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (pendingKey !== 'delete') setDeleteIds(null);
+    };
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [deleteIds, pendingKey]);
 
   useEffect(() => {
     if (!tagPanelOpen) return undefined;
@@ -356,7 +379,7 @@ export default function ColorBoardSelectionDock({
 
   const tagPanelHeightBounds = getTagPanelHeightBounds();
 
-  if (selectedIllustrations.length === 0) return null;
+  if (!visible || selectedIllustrations.length === 0) return null;
 
   return (
     <>
@@ -506,9 +529,9 @@ export default function ColorBoardSelectionDock({
             </section>
           )}
 
-          <div className="flex max-w-full items-center gap-1.5 rounded-2xl border border-edge-primary/90 bg-surface-secondary/95 p-1.5 shadow-xl shadow-overlay/20 backdrop-blur-xl">
+          <div className="flex max-w-full flex-wrap items-center gap-1.5 rounded-2xl border border-edge-primary/90 bg-surface-secondary/95 p-1.5 shadow-xl shadow-overlay/20 backdrop-blur-xl">
             <span className="shrink-0 rounded-xl bg-accent px-2.5 py-1.5 text-[10px] font-semibold tabular-nums text-white">
-              {t('colorBoard.selected', { count: selectedIllustrations.length })}
+              {t(selectionSource === 'tray' ? 'colorBoard.tray.selected' : 'colorBoard.selected', { count: selectedIllustrations.length })}
             </span>
             <button
               type="button"
@@ -531,7 +554,7 @@ export default function ColorBoardSelectionDock({
             </button>
             <button
               type="button"
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => setDeleteIds(ids)}
               disabled={Boolean(pendingKey)}
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[10px] font-medium text-danger transition-colors hover:bg-danger/10 focus:outline-none focus:ring-2 focus:ring-danger/25 disabled:opacity-40"
             >
@@ -551,18 +574,19 @@ export default function ColorBoardSelectionDock({
         </div>
       </div>
 
-      {confirmDelete && (
+      {deleteIds && (
         <ConfirmModal
           title={t('colorBoard.delete.title')}
-          message={t('colorBoard.delete.message', { count: selectedIllustrations.length })}
+          message={t('colorBoard.delete.message', { count: deleteIds.length })}
           confirmText={t('colorBoard.delete.confirm')}
           cancelText={t('colorBoard.delete.cancel')}
           danger
+          pending={pendingKey === 'delete'}
           onConfirm={() => run('delete', async () => {
-            await onDelete(ids);
-            setConfirmDelete(false);
+            await onDelete(deleteIds);
+            setDeleteIds(null);
           })}
-          onCancel={() => setConfirmDelete(false)}
+          onCancel={() => setDeleteIds(null)}
         />
       )}
     </>
