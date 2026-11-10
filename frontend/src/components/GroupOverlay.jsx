@@ -10,6 +10,8 @@ import useCardSize, { CARD_SIZE_MIN, CARD_SIZE_MAX } from '../hooks/useCardSize'
 import useOriginalRatio from '../hooks/useOriginalRatio';
 import useDownloadConfig from '../hooks/useDownloadConfig';
 import useIllustrationFileDrop from '../hooks/useIllustrationFileDrop';
+import useIllustrationReorder from '../hooks/useIllustrationReorder';
+import { refreshGroupSettings } from '../hooks/useGroupSettings';
 import {
   filterIllustrations,
   flattenVisibleGroups,
@@ -24,6 +26,8 @@ import {
 import { useToast } from './Toast';
 import BatchExportModal from './BatchExportModal';
 import ConfirmModal from './ConfirmModal';
+import GalleryRefresh from './GalleryRefresh';
+import { IllustrationDropMarker, IllustrationMoveConfirmation } from './IllustrationReorder';
 import Lightbox from './Lightbox';
 import IllustrationCard from './IllustrationCard';
 import ColorGroupGallery, { ColorGroupGalleryControls } from './ColorGroupGallery';
@@ -69,10 +73,13 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
   const [previewMode, setPreviewMode] = useGroupViewSetting(group.id, 'color_group_preview_mode');
   const [previewLimit, setPreviewLimit] = useGroupViewSetting(group.id, 'color_group_preview_limit');
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  const [expandedPreviews, setExpandedPreviews] = useState(new Set());
   const [showGroupConfig, setShowGroupConfig] = useState(false);
   const [showColorBoard, setShowColorBoard] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const fileInputRef = useRef(null);
+  const illustrationRequestRef = useRef(null);
+  const mountedRef = useRef(false);
   const { addToast } = useToast();
   const [quality, setQuality] = useQuality(group.id);
   const [cardSize, setCardSize, cardSizeGrid] = useCardSize(group.id);
@@ -118,23 +125,50 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     if (activeConfig.error) addToast(t('settings.toast.saveFailed'), 'error');
   }, [activeConfig.error, addToast, t]);
 
-  const fetchIllustrations = useCallback(async () => {
+  const fetchIllustrations = useCallback(async ({ signal, syncSettings = false } = {}) => {
+    if (!mountedRef.current || signal?.aborted) return;
+    illustrationRequestRef.current?.abort();
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    illustrationRequestRef.current = controller;
     try {
-      const data = await listAllIllustrations(group.id);
-      setIllustrations(data.items);
+      const [data] = await Promise.all([
+        listAllIllustrations(group.id, 5000, controller.signal),
+        syncSettings && refreshGroupSettings(controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      setIllustrations((previous) => (
+        previous.length === data.items.length && previous.every((item, index) => (
+          item.id === data.items[index].id && JSON.stringify(item) === JSON.stringify(data.items[index])
+        )) ? previous : data.items
+      ));
       setTotalCount(data.total);
+      setError('');
     } catch (err) {
-      setError(err.message);
+      if (!controller.signal.aborted) setError(err.message);
     } finally {
-      setLoading(false);
+      signal?.removeEventListener('abort', cancel);
+      if (illustrationRequestRef.current === controller) {
+        illustrationRequestRef.current = null;
+        if (!controller.signal.aborted) setLoading(false);
+      }
+      controller.abort();
     }
   }, [group.id]);
 
   useEffect(() => {
+    mountedRef.current = true;
     setLoading(true);
     setCurrentPage(1);
     fetchIllustrations();
+    return () => {
+      mountedRef.current = false;
+      illustrationRequestRef.current?.abort();
+    };
   }, [fetchIllustrations]);
+
+  const refreshGallery = useCallback((signal) => fetchIllustrations({ signal, syncSettings: true }), [fetchIllustrations]);
 
   // Fetch settings to know whether auto-tag is enabled and how to handle filename conflicts
   useEffect(() => {
@@ -176,8 +210,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
         default:
           return 0;
       }
-      if (sortOrder === 'asc') return valA > valB ? 1 : valA < valB ? -1 : 0;
-      return valA < valB ? 1 : valA > valB ? -1 : 0;
+      if (valA === valB) return (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id;
+      const comparison = valA > valB ? 1 : -1;
+      return sortOrder === 'asc' ? comparison : -comparison;
     });
     return sorted;
   }, [illustrations, sortBy, sortOrder]);
@@ -244,10 +279,37 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
+  useEffect(() => {
+    setExpandedPreviews((previous) => previous.size ? new Set() : previous);
+  }, [activeConfig.activeSetId, currentPage, groupBy, pageSize, previewLimit, previewMode]);
+
+  const toggleFullPreview = useCallback((id) => {
+    setExpandedPreviews((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setCollapsedGroups((previous) => {
+      if (!previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
   const paginatedGroupedIllustrations = useMemo(() => {
     if (!previewGroups) return null;
-    return paginateIllustrationGroups(previewGroups, currentPage, pageSize);
-  }, [previewGroups, currentPage, pageSize]);
+    const page = paginateIllustrationGroups(previewGroups, currentPage, pageSize);
+    if (!expandedPreviews.size || previewMode !== 'limited') return page;
+    const completeGroups = new Map(groupedIllustrations.map((item) => [item.id, item.items]));
+    return page.map((item) => item.omittedCount > 0 && expandedPreviews.has(item.id)
+      ? { ...item, items: completeGroups.get(item.id), previewExpanded: true }
+      : item);
+  }, [previewGroups, currentPage, pageSize, expandedPreviews, previewMode, groupedIllustrations]);
+  const previewTotal = paginationTotal + (paginatedGroupedIllustrations?.reduce(
+    (total, item) => total + (item.previewExpanded ? item.omittedCount : 0), 0,
+  ) ?? 0);
 
   const paginatedIllustrations = useMemo(() => {
     if (groupedIllustrations || pageSize === 'all') return filteredIllustrations;
@@ -270,9 +332,31 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
     handleShiftClick,
   } = useIllustrationSelection(displayedIllustrations, setLightboxIndex);
 
+  const interactionInProgress = loading || uploading || batchDeleting || retagging || showColorBoard
+    || showGroupConfig || showExport || showModelModal || uploadSummary !== null
+    || deleteTarget !== null || coverTarget !== null || retagConfirm || lightboxIndex !== null;
+  const reportReorderError = useCallback((error) => addToast(error.message, 'error'), [addToast]);
+  const reorder = useIllustrationReorder({
+    groupId: group.id,
+    enabled: !sortBy && !interactionInProgress,
+    illustrations,
+    groups: groupedIllustrations,
+    selectedIds,
+    activeConfig,
+    onCommitted: fetchIllustrations,
+    onError: reportReorderError,
+  });
+
   useEffect(() => {
     clearSelection();
   }, [clearSelection, group.id]);
+
+  useEffect(() => {
+    if (!selectedIds.size) return;
+    const existingIds = new Set(illustrations.map((item) => item.id));
+    const deletedIds = [...selectedIds].filter((id) => !existingIds.has(id));
+    if (deletedIds.length) removeFromSelection(deletedIds);
+  }, [illustrations, removeFromSelection, selectedIds]);
 
   const toggleGroupCollapse = useCallback((groupId) => {
     setCollapsedGroups((prev) => {
@@ -625,16 +709,18 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
         <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
         {/* Header */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-edge-primary px-4 py-3.5 sm:px-6">
-          <div className="flex min-w-[min(100%,13rem)] flex-1 items-center gap-3">
+          <div className="flex min-w-0 max-w-full flex-[1_1_100%] items-center gap-2.5 2xl:flex-[1_1_19rem]">
             <button
+              type="button"
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary transition-colors"
+              aria-label={t('navigation.back')}
+              className="shrink-0 p-2 rounded-lg hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h2 className="max-w-[14rem] truncate whitespace-nowrap text-lg font-semibold text-content-primary" title={group.name}>{group.name}</h2>
+            <h2 className="min-w-0 max-w-[24rem] truncate text-lg font-semibold text-content-primary 2xl:max-w-[14rem]" title={group.name}>{group.name}</h2>
             <span className="hidden shrink-0 whitespace-nowrap text-sm text-content-muted 2xl:inline">
               {filterQuery.trim()
                 ? t('groupOverlay.filteredCount', { filteredCount: filteredIllustrations.length, total: illustrations.length })
@@ -648,14 +734,14 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             <button
               type="button"
               onClick={() => setShowColorBoard(true)}
-              className="group/board inline-flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-medium text-accent shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent/45 hover:bg-accent/15 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-accent/35"
+              className="group/board inline-flex shrink-0 items-center gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-medium text-accent shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent/45 hover:bg-accent/15 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-accent/35"
               title={t('groupOverlay.board.openHint')}
               aria-label={t('groupOverlay.board.openHint')}
             >
               <span className="grid h-5 w-5 place-items-center rounded-lg bg-accent/15 transition-transform group-hover/board:rotate-6">
                 <Palette className="h-3 w-3" />
               </span>
-              <span className="hidden xl:inline">{t('groupOverlay.board.open')}</span>
+              <span className="hidden whitespace-nowrap lg:inline">{t('groupOverlay.board.open')}</span>
               <span className="rounded-full bg-surface-secondary/80 px-1.5 py-0.5 text-[9px] tabular-nums text-content-muted">
                 {activeConfig.pairs.length}
               </span>
@@ -666,9 +752,10 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
               <Archive className="h-4 w-4" aria-hidden="true" />
               <span className="hidden 2xl:inline">{t('home.batchExport')}</span>
             </button>
+            <GalleryRefresh onRefresh={refreshGallery} paused={interactionInProgress || reorder.busy} />
           </div>
 
-          <div className="flex max-w-full flex-wrap items-center gap-2.5">
+          <div className="flex min-w-0 max-w-full flex-[1_1_100%] flex-wrap items-center gap-2.5 2xl:flex-[3_1_46rem] 2xl:justify-end">
             {/* In-page search */}
             <TagPromptSuggest
               type="mixed"
@@ -847,9 +934,9 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
                 <span>{t('groupOverlay.pagination.of')}</span>
                 <span className="font-medium text-content-primary">{totalPages}</span>
                 <span className="text-content-muted ml-1">
-                  ({paginationTotal < filteredIllustrations.length
-                    ? t('colorGroup.gallery.previewTotal', { shown: paginationTotal, total: filteredIllustrations.length })
-                    : t('groupOverlay.pagination.total', { total: paginationTotal })})
+                  ({previewTotal < filteredIllustrations.length
+                    ? t('colorGroup.gallery.previewTotal', { shown: previewTotal, total: filteredIllustrations.length })
+                    : t('groupOverlay.pagination.total', { total: previewTotal })})
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -946,6 +1033,7 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
             />
           )}
 
+          <div {...reorder.zoneProps}>
           {loading ? (
             <div className="flex items-center justify-center h-64 text-content-muted text-sm">{t('groupOverlay.loading')}</div>
           ) : illustrations.length === 0 ? (
@@ -962,19 +1050,22 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
               layout={colorGroupLayout}
               collapsedGroups={collapsedGroups}
               onToggle={toggleGroupCollapse}
+              onToggleFull={previewMode === 'limited' ? toggleFullPreview : undefined}
               cardSize={cardSize}
-              renderCard={(ill) => <IllustrationCard key={ill.id} {...cardProps(ill)} />}
+              renderCard={(ill) => <IllustrationCard key={ill.id} {...cardProps(ill)} drag={reorder.cardDrag(ill)} />}
             />
           ) : (
             /* Flat grid (no grouping) */
             <div className={`grid items-start ${cardSizeGrid} gap-4`}>
               <AnimatePresence mode="popLayout">
                 {paginatedIllustrations.map((ill) => (
-                  <IllustrationCard key={ill.id} {...cardProps(ill)} />
+                  <IllustrationCard key={ill.id} {...cardProps(ill)} drag={reorder.cardDrag(ill)} />
                 ))}
               </AnimatePresence>
             </div>
           )}
+          <IllustrationDropMarker marker={reorder.marker} />
+          </div>
         </div>
 
 
@@ -1036,6 +1127,8 @@ export default function GroupOverlay({ group, onClose, onGroupUpdated }) {
         )}
         </div>
       )}
+
+      <IllustrationMoveConfirmation {...reorder.confirmationProps} />
 
       {/* Group Config Modal */}
       <AnimatePresence>

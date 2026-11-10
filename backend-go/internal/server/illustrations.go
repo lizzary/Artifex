@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -46,7 +47,7 @@ func (s *Server) ListIllustrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset := queryInt(r, "offset", 0, 0, 100000)
+	offset := queryInt(r, "offset", 0, 0, math.MaxInt)
 	limit := queryInt(r, "limit", 50, 1, 100000)
 
 	db := s.db
@@ -63,8 +64,9 @@ func (s *Server) ListIllustrations(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT i.*, ? AS group_name
 		FROM illustrations i
+		LEFT JOIN illustration_order io ON io.illustration_id = i.id
 		WHERE i.group_id = ?
-		ORDER BY i.created_at DESC, i.id DESC
+		ORDER BY io.position, i.created_at DESC, i.id DESC
 		LIMIT ? OFFSET ?
 	`, groupName, groupID, limit, offset)
 	if err != nil {

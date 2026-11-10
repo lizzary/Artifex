@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { getGroupConfig, updateColorConfig, updateGroupConfig } from '../api';
+import { getGroupConfig, reorderIllustrations, updateColorConfig, updateGroupConfig } from '../api';
 import { applyColorOperations } from '../utils/colorConfig';
 import { isColorGroupPreviewLimit } from '../utils/colorGroupGallery';
 
@@ -91,7 +91,7 @@ async function enqueueChange(operation) {
       committed = await operation.send(committed);
       return committed;
     } catch (error) {
-      snapshot = { ...snapshot, error };
+      if (operation.reportError !== false) snapshot = { ...snapshot, error };
       throw error;
     } finally {
       pending.splice(pending.indexOf(operation), 1);
@@ -132,14 +132,27 @@ export function changeColorSettings(groupId, operations) {
   });
 }
 
-export async function refreshGroupSettings() {
+export function persistIllustrationOrder(groupId, move) {
+  return enqueueChange({
+    reportError: false,
+    apply: (current) => current,
+    send: () => reorderIllustrations(groupId, move),
+  });
+}
+
+export async function refreshGroupSettings(signal) {
   await loadGroupSettings();
   const result = writeChain.then(async () => {
     try {
-      committed = await getGroupConfig();
-      publish(null);
+      signal?.throwIfAborted();
+      const data = await getGroupConfig(signal);
+      signal?.throwIfAborted();
+      if (JSON.stringify(committed) !== JSON.stringify(data) || snapshot.error) {
+        committed = data;
+        publish(null);
+      }
     } catch (error) {
-      publish(error);
+      if (!signal) publish(error);
       throw error;
     }
   });

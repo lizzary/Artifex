@@ -1,12 +1,12 @@
 import { AnimatePresence } from 'framer-motion';
-import { ChevronDown, CornerDownLeft, CornerDownRight, Hand } from 'lucide-react';
+import { ChevronDown, CornerDownLeft, CornerDownRight, Hand, ListFilter, Maximize2 } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
 import { getCardSizeGrid } from '../hooks/useCardSize';
 import { toHexColor } from '../utils/groupColors';
 import InferenceIcon from './InferenceIcon';
 
 export default function ColorGroup({
-  group, collapsed, onToggle, children, cardSize = 3, layout, segment, toggleRef,
+  group, collapsed, onToggle, onToggleFull, children, cardSize = 3, layout, segment, toggleRef,
 }) {
   const { t } = useLocale();
   const name = group.id === 'other' ? t('colorGroup.other') : group.name;
@@ -14,6 +14,9 @@ export default function ColorGroup({
   const continuesOnNext = Boolean(segment?.continuesOnNext);
   const omittedCount = group.omittedCount || 0;
   const count = t('colorGroup.count', { count: group.totalCount ?? group.items.length });
+  const fullActionLabel = onToggleFull && (group.previewExpanded
+    ? t('colorGroup.gallery.restoreLimit', { name })
+    : t('colorGroup.gallery.showFull', { name, count: group.totalCount }));
   const manualCount = t('colorGroup.manualCount', { count: group.manualCount });
   const automaticCount = t('colorGroup.automaticCount', { count: group.computedCount });
   const title = [
@@ -25,6 +28,7 @@ export default function ColorGroup({
   return (
     <section
       className={`min-w-0 rounded-xl border ${layout ? 'color-gallery-panel' : 'mb-5 overflow-hidden'}`}
+      data-illustration-drop-group={layout ? group.id : undefined}
       data-from-previous={fromPrevious || undefined}
       data-continues={continuesOnNext || undefined}
       style={{
@@ -34,11 +38,13 @@ export default function ColorGroup({
         gridColumn: segment ? `span ${segment.span}` : undefined,
       }}
     >
+      <div className={layout ? 'color-gallery-panel-heading' : undefined}>
       <button
         type="button"
         ref={toggleRef}
         onClick={onToggle}
         aria-expanded={!collapsed}
+        data-illustration-drop-heading={layout ? '' : undefined}
         title={title}
         className={`flex min-w-0 w-full items-center text-left select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 ${
           layout ? 'color-gallery-panel-header' : 'gap-3 px-4 py-3 transition-all hover:brightness-110'
@@ -80,7 +86,7 @@ export default function ColorGroup({
             )}
           </span>
         )}
-        {!collapsed && !continuesOnNext && omittedCount > 0 && (
+        {!onToggleFull && !group.previewExpanded && !collapsed && !continuesOnNext && !fromPrevious && omittedCount > 0 && (
           <span className="color-gallery-omitted" title={t('colorGroup.gallery.omitted', { count: omittedCount })}>
             <span aria-hidden="true">+{omittedCount}</span>
             <span className="sr-only">{t('colorGroup.gallery.omitted', { count: omittedCount })}</span>
@@ -93,6 +99,24 @@ export default function ColorGroup({
           </span>
         )}
       </button>
+      {onToggleFull && (
+        <button
+          type="button"
+          className="color-gallery-preview-action"
+          aria-pressed={Boolean(group.previewExpanded)}
+          aria-label={fullActionLabel}
+          title={fullActionLabel}
+          onClick={onToggleFull}
+        >
+          {group.previewExpanded
+            ? <ListFilter size={13} aria-hidden="true" />
+            : <Maximize2 size={12} aria-hidden="true" />}
+          <span aria-hidden="true">
+            {group.previewExpanded ? t('colorGroup.gallery.limitShort') : `+${omittedCount}`}
+          </span>
+        </button>
+      )}
+      </div>
       {!collapsed && (
         <div className={layout ? 'color-gallery-panel-body' : 'px-4 pb-4'}>
           <div

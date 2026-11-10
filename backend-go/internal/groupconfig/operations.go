@@ -89,31 +89,36 @@ func ApplyColorOperations(ctx context.Context, db *sql.DB, groupID int, data []b
 		if err := requireGroup(ctx, conn, id); err != nil {
 			return err
 		}
-		group, ok := cfg.Groups[id]
-		if !ok {
-			group = DefaultGroup()
-		}
-		colors := readColors(group.Colors)
+		colors := readColors(cfg.Groups[id].Colors)
 		for _, op := range ops {
 			if err := colors.apply(ctx, conn, groupID, op); err != nil {
 				return err
 			}
 		}
-		if !colors.valid() {
-			return fmt.Errorf("%w: invalid resulting colors", ErrInvalid)
-		}
-		group.Colors, _ = json.Marshal(colors)
-		view, err := json.Marshal(group.View)
-		if err != nil {
-			return err
-		}
-		if _, err := conn.ExecContext(ctx, `INSERT INTO group_configs (group_id, view, colors) VALUES (?, ?, ?)
-			ON CONFLICT(group_id) DO UPDATE SET colors = excluded.colors`, groupID, string(view), string(group.Colors)); err != nil {
-			return err
-		}
-		cfg.Groups[id] = group
-		return nil
+		return saveColors(ctx, conn, cfg, groupID, colors)
 	})
+}
+
+func saveColors(ctx context.Context, conn *sql.Conn, cfg *Config, groupID int, colors colorConfig) error {
+	if !colors.valid() {
+		return fmt.Errorf("%w: invalid resulting colors", ErrInvalid)
+	}
+	id := strconv.Itoa(groupID)
+	group, ok := cfg.Groups[id]
+	if !ok {
+		group = DefaultGroup()
+	}
+	group.Colors, _ = json.Marshal(colors)
+	view, err := json.Marshal(group.View)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO group_configs (group_id, view, colors) VALUES (?, ?, ?)
+		ON CONFLICT(group_id) DO UPDATE SET colors = excluded.colors`, groupID, string(view), string(group.Colors)); err != nil {
+		return err
+	}
+	cfg.Groups[id] = group
+	return nil
 }
 
 func (c *colorConfig) apply(ctx context.Context, conn *sql.Conn, groupID int, op colorOperation) error {

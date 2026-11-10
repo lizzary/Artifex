@@ -141,7 +141,7 @@ export function normalizeManualAssignments(assignments, pairs = []) {
   if (!assignments || typeof assignments !== 'object' || Array.isArray(assignments)) return {};
   const validGroupIds = new Set(pairs.map((pair) => pair.id));
   return Object.entries(assignments).reduce((result, [illustrationId, groupId]) => {
-    if (validGroupIds.has(groupId)) result[String(illustrationId)] = groupId;
+    if (groupId === '' || validGroupIds.has(groupId)) result[String(illustrationId)] = groupId;
     return result;
   }, {});
 }
@@ -153,13 +153,13 @@ export function getIllustrationMemberships(illustrations, pairs, matchOrder = []
 
   for (const illustration of illustrations) {
     const computedGroup = priorityGroups.find((group) => matchesMixedExpression(illustration, group));
-    const manualGroupId = validAssignments[String(illustration.id)] || null;
+    const manualGroupId = validAssignments[String(illustration.id)] ?? null;
     const computedGroupId = computedGroup?.id || null;
     memberships.set(illustration.id, {
       manualGroupId,
       computedGroupId,
-      effectiveGroupId: manualGroupId ?? computedGroupId ?? 'other',
-      source: manualGroupId ? 'manual' : (computedGroupId ? 'computed' : 'other'),
+      effectiveGroupId: manualGroupId === '' ? 'other' : manualGroupId ?? computedGroupId ?? 'other',
+      source: manualGroupId === '' ? 'other' : manualGroupId ? 'manual' : (computedGroupId ? 'computed' : 'other'),
     });
   }
 
@@ -186,7 +186,7 @@ export function groupIllustrations(
 
   for (const illustration of illustrations) {
     const membership = memberships.get(illustration.id);
-    const target = groupById.get(membership?.effectiveGroupId);
+    const target = membership?.source === 'other' ? null : groupById.get(membership?.effectiveGroupId);
     if (!target) {
       otherItems.push(illustration);
       continue;

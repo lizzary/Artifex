@@ -815,6 +815,18 @@ export default function useColorBoardController({
     setTraySelection((previous) => nextCardSelection(previous, id, additive));
   });
 
+  const selectTrayCards = useStableEvent((ids, additive = false) => {
+    if (gestureRef.current || trayMovePendingRef.current) return;
+    activateSelection('tray');
+    setTraySelection((previous) => {
+      const next = new Set(additive ? previous : []);
+      for (const id of ids) {
+        if (trayIds.has(id) && illustrationsById.has(id)) next.add(id);
+      }
+      return sameSet(previous, next) ? previous : next;
+    });
+  });
+
   return {
     activeSelectionIds,
     addSelectionToTray: () => addToTray([...selectedIds]),
@@ -845,6 +857,7 @@ export default function useColorBoardController({
     rendererRef,
     returnTraySelection,
     selectTrayCard,
+    selectTrayCards,
     selectedIds,
     selectionSource,
     setFreeRowLimit,

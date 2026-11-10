@@ -115,6 +115,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		// Illustrations
 		r.Get("/groups/{groupId}/illustrations", s.ListIllustrations)
 		r.Post("/groups/{groupId}/illustrations/upload", s.UploadIllustrations)
+		r.Post("/groups/{groupId}/illustrations/reorder", s.ReorderIllustrations)
 		r.Post("/illustrations/tags", s.UpdateIllustrationTags)
 		r.Post("/illustrations/retag", s.RetagIllustrations)
 		r.Get("/illustrations/{illustrationId}", s.GetIllustration)

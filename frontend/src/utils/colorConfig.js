@@ -31,7 +31,7 @@ export function isColorConfig(entry) {
       || new Set(set.match_order).size !== pairIds.size
       || !set.match_order.every((id) => pairIds.has(id))
       || !Object.entries(set.manual_assignments).every(([id, pairId]) => (
-        /^[1-9]\d*$/.test(id) && pairIds.has(pairId)
+        /^[1-9]\d*$/.test(id) && (pairId === '' || pairIds.has(pairId))
       ))) return false;
   }
   return entry.sets.length === 0 ? entry.active_id === null : setIds.has(entry.active_id);

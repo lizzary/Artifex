@@ -6,7 +6,9 @@ async function request(path, options = {}) {
   if (res.status === 204) return null;
   if (!res.ok) {
     const detail = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(detail.detail || `Request failed: ${res.status}`);
+    const error = new Error(detail.detail || `Request failed: ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -45,29 +47,41 @@ export function deleteGroup(groupId) {
 
 // ── Illustrations ──────────────────────────────────────
 
-function listIllustrations(groupId, offset = 0, limit = 200) {
-  return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`);
+function listIllustrations(groupId, offset, limit, signal) {
+  return request(`/api/groups/${groupId}/illustrations?offset=${offset}&limit=${limit}`, { signal });
 }
 
 // Color-group inference is evaluated in the browser, so pagination based on the
 // resulting group order needs the complete illustration set first. Fetch in
 // bounded batches instead of relying on one oversized request.
-export async function listAllIllustrations(groupId, batchSize = 5000) {
+export async function listAllIllustrations(groupId, batchSize = 5000, signal) {
   const items = [];
+  const seen = new Set();
+  let offset = 0;
   let total = 0;
 
   do {
-    const data = await listIllustrations(groupId, items.length, batchSize);
+    const data = await listIllustrations(groupId, offset, batchSize, signal);
     const batch = Array.isArray(data.items) ? data.items : [];
-    items.push(...batch);
+    for (const item of batch) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      items.push(item);
+    }
+    offset += batch.length;
     total = Number.isFinite(data.total) ? data.total : items.length;
-
-    // Avoid an infinite loop if the server reports a stale total or returns no
-    // progress for an out-of-range offset.
     if (batch.length === 0) break;
-  } while (items.length < total);
+  } while (offset < total);
 
   return { items, total };
+}
+
+export function reorderIllustrations(groupId, move) {
+  return request(`/api/groups/${groupId}/illustrations/reorder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(move),
+  });
 }
 
 export function uploadIllustrations(groupId, files, skipAutoTag = false, conflictPolicy) {

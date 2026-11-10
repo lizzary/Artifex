@@ -1,0 +1,116 @@
+.color-board-tray-frame {
+  bottom: clamp(3.75rem, 12dvh, 6.25rem);
+}
+
+.color-board-tray-panel {
+  width: min(var(--tray-width, 22rem), 100%);
+  height: var(--tray-height, auto);
+}
+
+.color-board-tray-scroll {
+  max-height: 14rem;
+  scrollbar-gutter: stable;
+}
+
+.color-board-tray-panel[data-custom-size] .color-board-tray-scroll {
+  flex: 1;
+  max-height: none;
+}
+
+.color-board-tray-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 3.625rem), 1fr));
+  gap: 6px;
+}
+
+.color-board-tray-scroll[data-sweeping] {
+  border-color: rgb(var(--clr-accent) / 0.45);
+  user-select: none;
+}
+
+.color-board-tray-scroll[data-sweeping],
+.color-board-tray-scroll[data-sweeping] [data-tray-card-id] {
+  cursor: crosshair;
+}
+
+.color-board-tray-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 0 1px 5px;
+}
+
+.color-board-tray-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--clr-text-3));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.color-board-tray-tally[data-selected] > :first-child {
+  color: rgb(var(--clr-accent-hover));
+  font-weight: 650;
+}
+
+.color-board-tray-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+  padding: 2px;
+  background: rgb(var(--clr-surface-3) / 0.58);
+}
+
+.color-board-tray-bulk > button,
+.color-board-tray-resize {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  color: rgb(var(--clr-text-2));
+  transition: color 150ms, background-color 150ms;
+}
+
+.color-board-tray-bulk > button {
+  min-height: 23px;
+  padding-inline: 7px;
+  font-size: 11px;
+}
+
+.color-board-tray-bulk > button:disabled {
+  opacity: 0.48;
+}
+
+.color-board-tray-resize {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  cursor: nesw-resize;
+  touch-action: none;
+  color: rgb(var(--clr-text-3));
+}
+
+.color-board-tray-bulk > button:hover:not(:disabled),
+.color-board-tray-resize:hover,
+.color-board-tray-panel[data-resizing] .color-board-tray-resize {
+  background: rgb(var(--clr-accent) / 0.1);
+  color: rgb(var(--clr-accent-hover));
+}
+
+.color-board-tray-bulk > button:focus-visible,
+.color-board-tray-resize:focus-visible {
+  outline: 2px solid rgb(var(--clr-accent) / 0.58);
+  outline-offset: 1px;
+}
+
+@media (max-height: 480px) {
+  .color-board-tray-frame { bottom: 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .color-board-tray-bulk > button,
+  .color-board-tray-resize { transition: none; }
+}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Star, Trash2 } from 'lucide-react';
+import { GripVertical, Star, Trash2 } from 'lucide-react';
 import { useLocale } from '../contexts/LocaleContext';
 import { backendUrl } from '../api/url';
 
@@ -15,6 +15,7 @@ export default function IllustrationCard({
   showHoverActions = true,
   quality = 'low',
   preserveAspectRatio = false,
+  drag,
 }) {
   const [imgError, setImgError] = useState(false);
   const { t } = useLocale();
@@ -39,6 +40,8 @@ export default function IllustrationCard({
   return (
     <motion.div
       layout
+      data-illustration-reorder-card={drag ? illustration.id : undefined}
+      data-illustration-moving={drag?.moving || undefined}
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
@@ -58,9 +61,13 @@ export default function IllustrationCard({
 
       {/* Thumbnail */}
       <div
-        className={`${preserveAspectRatio ? '' : 'aspect-square'} flex cursor-pointer items-center justify-center overflow-hidden bg-surface-tertiary`}
+        className={`${preserveAspectRatio ? '' : 'aspect-square'} flex ${drag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} items-center justify-center overflow-hidden bg-surface-tertiary`}
         style={preserveAspectRatio ? { aspectRatio } : undefined}
         onClick={handleClick}
+        draggable={drag ? true : undefined}
+        onDragStart={drag?.onStart}
+        onDragEnd={drag?.onEnd}
+        title={drag?.label}
       >
         {imgError ? (
           <span className="text-content-muted text-xs">{t('illustrationCard.loadFailed')}</span>
@@ -69,6 +76,7 @@ export default function IllustrationCard({
             src={backendUrl(`${illustration.thumbnail_url}?quality=${quality}`)}
             alt={illustration.original_filename}
             onError={() => setImgError(true)}
+            draggable={drag ? false : undefined}
             className={`h-full w-full transition-transform duration-200 ${
               preserveAspectRatio ? 'object-contain' : 'object-cover'
             } ${
@@ -77,6 +85,12 @@ export default function IllustrationCard({
           />
         )}
       </div>
+
+      {drag && (
+        <span className="illustration-reorder-grip" aria-hidden="true">
+          <GripVertical size={13} />
+        </span>
+      )}
 
       {/* Hover actions */}
       {showHoverActions && (

@@ -1,7 +1,7 @@
 const statisticsCopy = {
   en: {
     back: 'Back to gallery',
-    edition: 'COLLECTION RECORD',
+    edition: 'GALLERY RECORD',
     title: 'Statistics',
     intro: 'A statistical report of the files currently in the library.',
     illustrations: 'Illustrations',
@@ -11,7 +11,7 @@ const statisticsCopy = {
     history: 'Import timeline',
     index: 'Illustration index',
     storage: 'Storage',
-    footprint: 'Total library storage',
+    footprint: 'Total data storage',
     snapshot: 'Snapshot',
     database: 'SQLite database',
     uploads: 'Image files',
@@ -53,7 +53,7 @@ const statisticsCopy = {
   },
   zh: {
     back: '返回图库',
-    edition: '馆藏记录',
+    edition: '图库记录',
     title: '统计数字',
     intro: '当前已在库的文件统计报告。',
     illustrations: '插画',
@@ -63,7 +63,7 @@ const statisticsCopy = {
     history: '入库年表',
     index: '插画索引',
     storage: '存储',
-    footprint: '馆藏总占用',
+    footprint: '数据总占用',
     snapshot: '统计日期',
     database: 'SQLite 数据库',
     uploads: '图像文件',

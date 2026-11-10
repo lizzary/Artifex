@@ -69,6 +69,11 @@ func createSchema(db *sql.DB) error {
 			FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 		);
 
+		CREATE TABLE IF NOT EXISTS illustration_order (
+			illustration_id INTEGER PRIMARY KEY REFERENCES illustrations(id) ON DELETE CASCADE,
+			position INTEGER NOT NULL CHECK (position >= 0)
+		);
+
 		CREATE VIRTUAL TABLE IF NOT EXISTS illustrations_fts USING fts5(
 			tags,
 			content='illustrations',

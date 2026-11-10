@@ -131,7 +131,7 @@ export function ColorGroupGalleryControls({
 }
 
 export default function ColorGroupGallery({
-  groups, layout, cardSize, collapsedGroups, onToggle, renderCard,
+  groups, layout, cardSize, collapsedGroups, onToggle, onToggleFull, renderCard,
 }) {
   const sizeProbe = useRef(null);
   const firstToggles = useRef(new Map());
@@ -190,6 +190,9 @@ export default function ColorGroupGallery({
               onToggle(group.id);
               if (fromPrevious) firstToggles.current.get(group.id)?.focus();
             }}
+            onToggleFull={onToggleFull && group.omittedCount > 0 && !fromPrevious
+              ? () => onToggleFull(group.id)
+              : undefined}
             toggleRef={fromPrevious ? undefined : (element) => {
               if (element) firstToggles.current.set(group.id, element);
               else firstToggles.current.delete(group.id);

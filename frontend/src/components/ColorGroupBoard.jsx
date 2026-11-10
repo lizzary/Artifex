@@ -309,6 +309,7 @@ export default function ColorGroupBoard({
           onAddSelection={controller.addSelectionToTray}
           onCardPointerDown={controller.handleTrayCardPointerDown}
           onCardSelect={controller.selectTrayCard}
+          onSelectCards={controller.selectTrayCards}
           onReturnSelection={controller.returnTraySelection}
           onPlaceSelection={controller.placeTraySelection}
         />

@@ -93,7 +93,8 @@ func (c colorConfig) valid() bool {
 			seen[id] = true
 		}
 		for imageID, pairID := range set.ManualAssignments {
-			if !ValidGroupID(imageID) || !pairIDs[pairID] {
+			// An empty override explicitly puts the illustration in the ungrouped bucket.
+			if !ValidGroupID(imageID) || (pairID != "" && !pairIDs[pairID]) {
 				return false
 			}
 		}

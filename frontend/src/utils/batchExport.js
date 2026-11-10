@@ -118,8 +118,8 @@ export function getColorGroups(illustrations, settings, other) {
     if (!active?.pairs.length) continue;
     const names = new Map(active.pairs.map((pair) => [pair.id, groupDisplayName(pair)]));
     const memberships = getIllustrationMemberships(items, active.pairs, active.match_order, active.manual_assignments);
-    for (const [illustrationId, { effectiveGroupId }] of memberships) {
-      result.set(illustrationId, { id: effectiveGroupId, name: names.get(effectiveGroupId) || other });
+    for (const [illustrationId, { effectiveGroupId, source }] of memberships) {
+      result.set(illustrationId, { id: effectiveGroupId, name: source === 'other' ? other : names.get(effectiveGroupId) || other });
     }
   }
   return result;

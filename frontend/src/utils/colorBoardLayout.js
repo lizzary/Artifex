@@ -98,7 +98,7 @@ export function buildColorBoardLayout(
 
   illustrations.forEach((illustration) => {
     const membership = memberships.get(illustration.id);
-    const target = itemsByGroup.get(membership?.effectiveGroupId);
+    const target = membership?.source === 'other' ? null : itemsByGroup.get(membership?.effectiveGroupId);
     if (target) target.push(illustration);
     else freeItems.push(illustration);
   });
