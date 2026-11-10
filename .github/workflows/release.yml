@@ -76,7 +76,7 @@ jobs:
             ort_name: onnxruntime-win-x64
             ort_ext: zip
           - target: darwin-arm64
-            os: macos-14       # Apple Silicon runner
+            os: macos-15       # Apple Silicon runner
             goos: darwin
             goarch: arm64
             archive: tar.gz
